@@ -1,0 +1,2166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Meraki L3 防火墙规则管理</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,500;0,600;1,400&family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ============ Anthropic 品牌设计令牌 ============ */
+  :root {
+    --c-dark: #141413;        /* 主文本 / 深底 */
+    --c-light: #faf9f5;       /* 浅底 / 深底上的文字 */
+    --c-mid: #b0aea5;         /* 次级元素 */
+    --c-lightgray: #e8e6dc;   /* 细微背景 / 分割 */
+    --c-orange: #d97757;      /* 主强调色 */
+    --c-orange-dark: #c25e3f;
+    --c-orange-soft: #f4e6df;
+    --c-blue: #6a9bcc;        /* 次强调色 */
+    --c-blue-dark: #4f7fa8;
+    --c-blue-soft: #e2ebf3;
+    --c-green: #788c5d;       /* 三级强调色 */
+    --c-green-soft: #eef0e6;
+    --c-red: #c0504a;         /* 错误（取自暖色调，非刺眼红） */
+    --c-red-soft: #f3e2e0;
+    --c-amber: #c69a3f;       /* 警告 */
+    --c-amber-soft: #f5ecd6;
+    --font-head: "Poppins", "PingFang SC", "Microsoft YaHei", Arial, sans-serif;
+    --font-body: "Lora", "PingFang SC", "Microsoft YaHei", Georgia, serif;
+    --shadow-sm: 0 1px 2px rgba(20,20,19,.06);
+    --shadow-md: 0 4px 16px rgba(20,20,19,.10);
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-body);
+    background: var(--c-light); color: var(--c-dark);
+    padding: 20px; font-size: 14px; line-height: 1.55;
+  }
+  h1, h2, h3 { font-family: var(--font-head); letter-spacing: -0.01em; }
+  h1 { color: var(--c-dark); margin-bottom: 4px; font-size: 24px; font-weight: 600;
+       display:flex; align-items:center; gap:10px; }
+  .subtitle { color: #6b6b66; margin-bottom: 18px; font-size: 13px; font-family: var(--font-body); }
+  .card {
+    background: #fff; border: 1px solid var(--c-lightgray);
+    border-radius: var(--radius); padding: 20px 22px;
+    margin-bottom: 18px; box-shadow: var(--shadow-sm);
+  }
+  .card h2 {
+    font-size: 16px; color: var(--c-dark); margin-bottom: 16px;
+    padding-bottom: 10px; border-bottom: 1px solid var(--c-lightgray);
+    display: flex; justify-content: space-between; align-items: center; font-weight: 600;
+  }
+  .row { display: flex; gap: 12px; align-items: flex-end; flex-wrap: wrap; }
+  .field { display: flex; flex-direction: column; gap: 4px; }
+  .field label { font-size: 12px; color: #6b6b66; font-weight: 600; font-family: var(--font-head); }
+  select, input[type=text], input[type=file] {
+    padding: 8px 11px; border: 1px solid var(--c-lightgray); border-radius: 7px;
+    font-size: 13px; background: #fff; min-width: 180px;
+    font-family: var(--font-body); color: var(--c-dark); transition: border-color .15s;
+  }
+  select:focus, input:focus { outline: none; border-color: var(--c-orange); box-shadow: 0 0 0 3px var(--c-orange-soft); }
+  button {
+    padding: 8px 18px; border: 1px solid transparent; border-radius: 7px; cursor: pointer;
+    font-size: 13px; font-weight: 600; font-family: var(--font-head);
+    transition: all .15s;
+  }
+  .btn-primary { background: var(--c-orange); color: #fff; }
+  .btn-primary:hover { background: var(--c-orange-dark); }
+  .btn-primary:disabled { background: var(--c-mid); cursor: not-allowed; }
+  .btn-success { background: var(--c-green); color: #fff; }
+  .btn-success:hover { background: #647148; }
+  .btn-warn { background: var(--c-amber); color: #fff; }
+  .btn-warn:hover { background: #a98231; }
+  .btn-danger { background: var(--c-red); color: #fff; }
+  .btn-danger:hover { background: #a23f3a; }
+  .btn-danger:disabled { background: var(--c-mid); cursor: not-allowed; }
+  .btn-sm { padding: 4px 11px; font-size: 12px; }
+  .btn-ghost {
+    background: var(--c-light); color: var(--c-dark); border: 1px solid var(--c-lightgray);
+  }
+  .btn-ghost:hover { background: var(--c-lightgray); border-color: var(--c-mid); }
+  .btn-ghost:disabled { color: var(--c-mid); cursor: not-allowed; }
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+
+  .alert {
+    padding: 10px 14px; border-radius: 8px; margin: 10px 0; font-size: 13px;
+    border: 1px solid transparent;
+  }
+  .alert-warn { background: var(--c-amber-soft); border-color: #e6d199; color: #7a5e1b; }
+  .alert-info { background: var(--c-blue-soft); border-color: #c3d4e3; color: #3f5e7a; }
+  .alert-success { background: var(--c-green-soft); border-color: #cdd3ba; color: #4d5d3a; }
+
+  .table-wrap { overflow-x: auto; border: 1px solid var(--c-lightgray); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { padding: 5px 6px; border: 1px solid var(--c-lightgray); text-align: left; }
+  th { background: var(--c-light); font-weight: 600; color: #4a4a45; white-space: nowrap;
+       font-family: var(--font-head); }
+  table { min-width: 100%; }
+  #rulesTable { min-width: 1400px; }
+  td input, td select {
+    width: 100%; min-width: 70px; border: 1px solid transparent; padding: 4px 5px;
+    font-size: 12px; background: transparent; border-radius: 4px;
+    font-family: var(--font-body);
+  }
+  td input:focus, td select:focus { border-color: var(--c-orange); background: #fff; }
+  tr.default-rule { background: #fbf5f0; }
+  tr.default-rule td { color: var(--c-mid); font-style: italic; }
+  .resolved-hint { font-size: 10px; color: var(--c-mid); }
+  .th-hint { font-size: 10px; color: var(--c-mid); font-weight: normal; }
+
+  /* CIDR 单元格内：对象引用段可点击 */
+  .cidr-cell { padding: 2px; }
+  .cidr-cell input { width: 100%; }
+  .obj-ref {
+    display: inline-block; color: var(--c-orange-dark); cursor: pointer;
+    text-decoration: underline dotted; padding: 0 1px; border-radius: 3px;
+    position: relative;
+  }
+  .obj-ref:hover { background: var(--c-orange-soft); }
+  .obj-ref.unknown { color: var(--c-red); }
+
+  /* 对象解析值气泡卡片 */
+  .obj-popover {
+    position: absolute; z-index: 80; min-width: 200px; max-width: 360px;
+    background: var(--c-dark); color: var(--c-light); border-radius: 8px; padding: 11px 13px;
+    font-size: 12px; line-height: 1.6; box-shadow: var(--shadow-md);
+    top: 100%; left: 0; margin-top: 6px;
+  }
+  .obj-popover::before {
+    content: ""; position: absolute; top: -5px; left: 14px;
+    border: 5px solid transparent; border-bottom-color: var(--c-dark); border-top: 0;
+  }
+  .obj-popover .op-name { font-weight: 600; font-size: 13px; margin-bottom: 3px; word-break: break-all; font-family: var(--font-head); }
+  .obj-popover .op-row { color: var(--c-mid); }
+  .obj-popover .op-val { color: var(--c-light); word-break: break-all; }
+  .obj-popover .op-members { color: var(--c-green); word-break: break-all; max-height: 120px; overflow-y: auto; }
+
+  /* CIDR 段落渲染 */
+  .cidr-cell { display: flex; flex-direction: column; gap: 2px; }
+  .cidr-segments {
+    font-size: 12px; padding: 5px 6px; border: 1px solid var(--c-lightgray);
+    border-radius: 4px; background: var(--c-light); min-height: 26px; line-height: 1.5;
+    word-break: break-all;
+  }
+  .cidr-segments .cidr-literal { color: var(--c-dark); }
+  .cidr-edit-btn { align-self: flex-start; font-size: 11px; padding: 2px 8px; }
+  .badge {
+    display: inline-block; padding: 1px 6px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; margin-left: 4px;
+  }
+  .badge-tmpl { background: var(--c-amber-soft); color: #7a5e1b; }
+
+  /* 行选中 / 拖拽 / 移动列 */
+  tr.selected { background: var(--c-orange-soft) !important; }
+  tr.selected td { color: var(--c-orange-dark); }
+  tr.default-rule.selected { background: #ecd9cf !important; }
+  tr.drag-over { box-shadow: inset 0 3px 0 0 var(--c-orange); }
+  tr.dragging { opacity: .4; }
+  .drag-handle {
+    cursor: grab; user-select: none; color: var(--c-mid); font-size: 14px;
+    padding: 2px 4px; line-height: 1; display: inline-block;
+  }
+  .drag-handle:active { cursor: grabbing; color: var(--c-orange); }
+  .move-btn {
+    padding: 1px 5px; font-size: 11px; line-height: 1.2;
+    background: var(--c-light); color: var(--c-dark); border: 1px solid transparent;
+    border-radius: 4px; cursor: pointer;
+  }
+  .move-btn:hover:not(:disabled) { background: var(--c-lightgray); }
+  .move-btn:disabled { opacity: .35; cursor: not-allowed; }
+  .col-select, .col-move { text-align: center; }
+  .row-check { cursor: pointer; accent-color: var(--c-orange); }
+  #selectAll { cursor: pointer; accent-color: var(--c-orange); }
+  .batch-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center;
+    margin: 8px 0 0; padding: 9px 12px; background: var(--c-orange-soft);
+    border:1px solid #e9d3c6; border-radius:7px; }
+  .batch-bar .batch-info { font-size:12px; color: var(--c-orange-dark); font-weight:600; font-family: var(--font-head); }
+
+  /* 站点模糊搜索框 */
+  .net-search-field { position: relative; min-width: 260px; }
+  .net-search-input { width: 100%; }
+  .net-dropdown {
+    position: absolute; top: 100%; left: 0; right: 0; z-index: 50;
+    background: #fff; border: 1px solid var(--c-lightgray); border-radius: 8px;
+    max-height: 280px; overflow-y: auto; box-shadow: var(--shadow-md);
+    margin-top: 2px;
+  }
+  .net-dropdown .dd-item {
+    padding: 7px 12px; cursor: pointer; font-size: 13px;
+    border-bottom: 1px solid var(--c-light); display: flex; justify-content: space-between; gap: 10px;
+  }
+  .net-dropdown .dd-item:last-child { border-bottom: none; }
+  .net-dropdown .dd-item:hover, .net-dropdown .dd-item.active {
+    background: var(--c-orange-soft); color: var(--c-orange-dark);
+  }
+  .net-dropdown .dd-item .dd-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .net-dropdown .dd-item .dd-tag { font-size: 10px; white-space: nowrap; align-self: center; padding: 1px 5px; border-radius: 4px; }
+  .net-dropdown .dd-tag-tmpl { background: var(--c-amber-soft); color: #7a5e1b; }
+  .net-dropdown .dd-tag-bound { background: var(--c-blue-soft); color: #3f5e7a; }
+  .net-dropdown .dd-empty { padding: 14px; color: var(--c-mid); font-size: 12px; text-align: center; }
+  .net-dropdown .dd-item mark { background: #f5d77f; padding: 0 1px; border-radius: 2px; }
+
+  .hidden { display: none !important; }
+  /* 次级状态（如 targetIndexInfo） */
+  .status { font-size: 12px; color: #6b6b66; margin-top: 8px; font-family: var(--font-body); }
+
+  /* ============ 顶部醒目状态条（实时运行状态）============ */
+  .status-bar {
+    position: sticky; top: 0; z-index: 60;
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 16px; margin-bottom: 18px;
+    border-radius: var(--radius); border: 1px solid var(--c-lightgray);
+    background: #fff; box-shadow: var(--shadow-sm);
+    font-family: var(--font-head); font-size: 14px; font-weight: 500; color: var(--c-dark);
+    transition: background .2s, border-color .2s;
+  }
+  .status-bar .sb-icon { font-size: 18px; line-height: 1; flex-shrink: 0; }
+  .status-bar .sb-text { flex: 1; min-width: 0; }
+  .status-bar.idle { background: #fff; border-color: var(--c-lightgray); color: #6b6b66; }
+  .status-bar.loading { background: var(--c-blue-soft); border-color: #c3d4e3; color: #3f5e7a; }
+  .status-bar.success { background: var(--c-green-soft); border-color: #cdd3ba; color: #4d5d3a; }
+  .status-bar.error { background: var(--c-red-soft); border-color: #e0c5c2; color: #8a3a35; }
+  .status-bar .loading::after {
+    content: ""; display: inline-block; width: 14px; height: 14px;
+    border: 2px solid #b8cee0; border-top-color: var(--c-blue); border-radius: 50%;
+    animation: spin .7s linear infinite; vertical-align: middle; margin-left: 4px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .obj-count { color: var(--c-orange-dark); font-weight: 600; }
+
+  .decision-table th, .decision-table td { font-size: 12px; }
+  .result-box {
+    background: var(--c-light); border-left: 3px solid var(--c-green); padding: 12px 14px;
+    border-radius: 6px; margin-top: 12px; font-size: 13px; line-height: 1.7;
+  }
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(20,20,19,.45);
+    display: flex; align-items: center; justify-content: center; z-index: 100;
+  }
+  .modal {
+    background: #fff; border-radius: var(--radius); padding: 22px;
+    max-width: 90%; max-height: 85vh; overflow: auto; width: 700px;
+    box-shadow: var(--shadow-md);
+  }
+  .modal h3 { margin-bottom: 14px; color: var(--c-dark); font-weight: 600; }
+  .modal p { color: #6b6b66; }
+  .modal code, .result-box code { background: var(--c-lightgray); padding: 1px 5px; border-radius: 4px;
+    font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 12px; }
+
+  /* 对象查询卡片 */
+  .obj-search-card {
+    background: var(--c-light); border: 1px solid var(--c-lightgray);
+    border-radius: 8px; padding: 12px 14px; margin-bottom: 14px;
+  }
+  .obj-search-head { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+  .obj-search-title { font-family: var(--font-head); font-weight:600; font-size:13px; color: var(--c-dark); }
+  .obj-search-status { font-size:11px; color:#6b6b66; }
+  .obj-search-status.ready { color: var(--c-green); }
+  .obj-search-results { margin-top:10px; max-height:260px; overflow-y:auto; }
+  .obj-search-results:empty::after {
+    content:"输入查询条件后显示匹配的对象 / 对象组"; display:block;
+    color:var(--c-mid); font-size:12px; padding:10px 2px;
+  }
+  .obj-res-item {
+    display:flex; align-items:center; gap:8px; padding:7px 8px; border-bottom:1px solid var(--c-lightgray);
+    font-size:12px;
+  }
+  .obj-res-item:last-child { border-bottom:none; }
+  .obj-res-item:hover { background:#fff; }
+  .obj-res-kind { font-size:10px; font-weight:700; padding:1px 6px; border-radius:4px; flex-shrink:0; }
+  .obj-res-kind.OBJ { background: var(--c-blue-soft); color:#3f5e7a; }
+  .obj-res-kind.GRP { background: var(--c-amber-soft); color:#7a5e1b; }
+  .obj-res-name { font-weight:600; color:var(--c-dark); word-break:break-all; }
+  .obj-res-val { color:#6b6b66; word-break:break-all; flex:1; min-width:0;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .obj-res-why { font-size:10px; color: var(--c-orange-dark); flex-shrink:0; }
+  .obj-res-copy { flex-shrink:0; padding:2px 8px; font-size:11px; }
+
+  /* CIDR 编辑模态器 */
+  .seg-editor { display:flex; flex-direction:column; gap:8px; }
+  .seg-row { display:flex; gap:8px; align-items:center; }
+  .seg-row .seg-val { flex:1; }
+  .seg-suggestions {
+    max-height:200px; overflow-y:auto; border:1px solid var(--c-lightgray);
+    border-radius:6px; background:var(--c-light); margin-top:4px;
+  }
+  .seg-sug-item { padding:6px 10px; cursor:pointer; border-bottom:1px solid var(--c-lightgray); font-size:12px; }
+  .seg-sug-item:last-child { border-bottom:none; }
+  .seg-sug-item:hover { background:var(--c-orange-soft); }
+
+  /* 增量暂存 + 合并面板 */
+  .chip {
+    display:inline-flex; align-items:center; gap:6px;
+    background:var(--c-orange-soft); color:var(--c-orange-dark);
+    border:1px solid #e9d3c6; border-radius:14px; padding:3px 10px;
+    font-size:12px; margin:3px 4px 3px 0;
+  }
+  .chip .chip-x { cursor:pointer; font-weight:700; opacity:.6; }
+  .chip .chip-x:hover { opacity:1; }
+  .anchor-group {
+    border:1px solid var(--c-lightgray); border-radius:8px; margin-bottom:8px;
+    overflow:hidden;
+  }
+  .anchor-group-head {
+    display:flex; align-items:center; gap:10px; padding:8px 10px;
+    background:var(--c-light); cursor:pointer;
+    font-size:12px;
+  }
+  .anchor-group-head:hover { background:var(--c-lightgray); }
+  .anchor-group.selected .anchor-group-head { background:var(--c-orange-soft); color:var(--c-orange-dark); }
+  .anchor-group-head .ag-label { font-weight:600; font-family:var(--font-head); }
+  .anchor-group-head .ag-meta { color:#6b6b66; font-size:11px; }
+  .anchor-pick {
+    margin-left:auto; font-size:11px; padding:2px 9px;
+    background:#fff; border:1px solid var(--c-lightgray); border-radius:5px; cursor:pointer;
+  }
+  .anchor-group.selected .anchor-pick { background:var(--c-orange); color:#fff; border-color:var(--c-orange); }
+  .anchor-group-body { padding:6px 10px; font-size:11px; color:#6b6b66; max-height:90px; overflow:auto;
+    border-top:1px solid var(--c-lightgray); }
+  .merge-summary { font-size:13px; line-height:1.8; }
+  .merge-res-item { display:flex; justify-content:space-between; padding:6px 8px; border-bottom:1px solid var(--c-lightgray); font-size:12px; }
+  .merge-res-item:last-child { border-bottom:none; }
+  /* 站点标签页 */
+  .merge-tabs { display:flex; gap:4px; flex-wrap:wrap; border-bottom:2px solid var(--c-lightgray); margin:8px 0 0; padding:0 2px; }
+  .merge-tab {
+    padding:7px 14px; cursor:pointer; font-size:13px; font-family:var(--font-head);
+    border:1px solid var(--c-lightgray); border-bottom:none; border-radius:7px 7px 0 0;
+    background:var(--c-light); color:#6b6b66; position:relative; max-width:240px;
+    display:flex; align-items:center; gap:6px;
+  }
+  .merge-tab:hover { background:#fff; color:var(--c-dark); }
+  .merge-tab.active { background:#fff; color:var(--c-orange-dark); border-color:var(--c-lightgray);
+    border-bottom:2px solid #fff; margin-bottom:-2px; font-weight:600; }
+  .merge-tab .mt-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .merge-tab .mt-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .merge-tab .mt-dot.pending { background:var(--c-amber); }      /* 未选锚点 */
+  .merge-tab .mt-dot.ready { background:var(--c-green); }        /* 已选锚点 */
+  .merge-tab.active .mt-dot.pending { background:var(--c-red); } /* 当前未选，醒目 */
+</style>
+</head>
+<body>
+
+<h1>🛡️ Meraki L3 防火墙规则管理</h1>
+<div class="subtitle">导出 / 编辑 / 导入 MX L3 防火墙规则，自动处理 Policy Object 引用与模板绑定站点</div>
+
+<!-- ====================== 实时状态条（置顶醒目）====================== -->
+<div class="status-bar idle" id="globalStatus">
+  <span class="sb-icon">●</span>
+  <span class="sb-text">就绪 — 请选择组织与站点开始</span>
+</div>
+
+<!-- ====================== 配置区 ====================== -->
+<div class="card">
+  <h2>① 选择组织与站点</h2>
+  <div class="row">
+    <div class="field">
+      <label>组织 Organization</label>
+      <select id="orgSelect" onchange="onOrgChange()">
+        <option value="">-- 加载中 --</option>
+      </select>
+    </div>
+    <div class="field net-search-field">
+      <label>站点 Network（输入名称模糊搜索）</label>
+      <input type="text" id="netSearch" class="net-search-input"
+             placeholder="-- 先选组织 --" disabled autocomplete="off">
+      <input type="hidden" id="netSelect">
+      <div class="net-dropdown hidden" id="netDropdown"></div>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn-primary" id="btnExport" onclick="doExport()" disabled>📥 导出规则</button>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn-warn" id="btnImport" onclick="showImportPanel()" disabled>📤 导入到新站点</button>
+    </div>
+  </div>
+  <div id="networkInfo"></div>
+</div>
+
+<!-- ====================== 导出/编辑区 ====================== -->
+<div class="card hidden" id="exportCard">
+  <h2>
+    <span>② 规则编辑（可直接修改表格，或下载 CSV 用 Excel 编辑后上传）</span>
+  </h2>
+  <div id="exportAlert"></div>
+  <!-- 对象查询卡片：基于已加载的对象索引，按 IP/名字/FQDN 查询对象与对象组 -->
+  <div class="obj-search-card">
+    <div class="obj-search-head">
+      <span class="obj-search-title">🔎 对象查询</span>
+      <span class="obj-search-status" id="objSearchStatus">未加载对象索引</span>
+    </div>
+    <div class="row" style="align-items:center;">
+      <div class="field" style="flex:1; min-width:240px;">
+        <input type="text" id="objSearchInput" placeholder="输入 IP（如 10.1.1.1 → 命中 10.0.0.0/8）/ 对象名 / FQDN，回车搜索"
+               oninput="onObjSearchInput()" onkeydown="if(event.key==='Enter')doObjSearch()">
+      </div>
+      <button class="btn-primary btn-sm" onclick="doObjSearch()">搜索</button>
+      <button class="btn-ghost btn-sm" onclick="clearObjSearch()">清除</button>
+    </div>
+    <div class="obj-search-results" id="objSearchResults"></div>
+  </div>
+  <div class="toolbar">
+    <button class="btn-ghost btn-sm" onclick="downloadCSV()">💾 下载 CSV</button>
+    <label class="btn-ghost btn-sm" style="display:inline-block;">
+      📂 上传 CSV 覆盖表格 <input type="file" accept=".csv" onchange="uploadCSV(event)" style="display:none;">
+    </label>
+    <button class="btn-ghost btn-sm" onclick="addRuleRow()">➕ 新增规则行</button>
+    <button class="btn-ghost btn-sm" onclick="removeDefaultRows()">🧹 移除默认 deny 行</button>
+    <button class="btn-ghost btn-sm" id="btnObjects" onclick="showObjectsModal()">📋 引用对象清单</button>
+    <span style="margin-left:auto; font-size:12px; color:#6b6b66;" id="ruleCount"></span>
+  </div>
+  <div class="batch-bar" id="batchBar">
+    <span class="batch-info" id="batchInfo">未选中规则</span>
+    <button class="btn-ghost btn-sm" id="btnCopySelected" onclick="copySelected()" disabled>📋 复制选中</button>
+    <button class="btn-warn btn-sm" id="btnStageSelected" onclick="stageSelectedToPatch()" disabled>📑 加入增量暂存</button>
+    <button class="btn-danger btn-sm" id="btnDeleteSelected" onclick="deleteSelected()" disabled>🗑️ 删除选中</button>
+    <span style="font-size:11px;color:#6b6b66;margin-left:auto;">提示：勾选多行后可批量复制/删除/加入增量暂存；拖动行首 ⋮⋮ 手柄或用 ↑↓ 按钮移动顺序</span>
+  </div>
+  <div class="table-wrap">
+    <table id="rulesTable">
+      <thead>
+        <tr>
+          <th style="width:34px;" class="col-select"><input type="checkbox" id="selectAll" onclick="toggleAll(this)"></th>
+          <th style="width:30px;">#</th>
+          <th>备注 comment</th>
+          <th>策略</th>
+          <th>协议</th>
+          <th>源端口</th>
+          <th>源 CIDR <span class="th-hint">（含 OBJ/GRP 可点击查看）</span></th>
+          <th>目的端口</th>
+          <th>目的 CIDR <span class="th-hint">（含 OBJ/GRP 可点击查看）</span></th>
+          <th style="width:50px;">日志</th>
+          <th style="width:76px;">移动</th>
+          <th style="width:40px;">删</th>
+        </tr>
+      </thead>
+      <tbody id="rulesBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ====================== 增量暂存区 + 合并面板 ====================== -->
+<div class="card hidden" id="patchCard">
+  <h2>
+    <span>③ 增量暂存区 <span id="patchCount" class="th-hint"></span></span>
+    <button class="btn-ghost btn-sm" onclick="clearPatch()">清空暂存</button>
+  </h2>
+  <p style="font-size:12px;color:#6b6b66;margin-bottom:12px;">
+    以下规则将作为<b>补丁</b>拼接进目标站点的现有规则（局部变更，不全量覆盖）。
+    OBJ/GRP 会按目标组织自动重映射；VLAN 标签透传（指向目标站点同号 VLAN）。
+  </p>
+  <div class="table-wrap" id="patchPreview" style="max-height:240px;overflow:auto;"></div>
+
+  <!-- 合并目标选择（多选） -->
+  <div class="row" style="margin-top:14px;">
+    <div class="field net-search-field" id="mergeNetField" style="min-width:300px;">
+      <label>目标站点（输入名称搜索，可添加多个）</label>
+      <input type="text" id="mergeNetSearch" class="net-search-input"
+             placeholder="-- 先选组织 --" disabled autocomplete="off">
+      <div class="net-dropdown hidden" id="mergeNetDropdown"></div>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn-primary" onclick="doMergePreview()" id="btnMergePreview" disabled>🔍 预检合并</button>
+    </div>
+  </div>
+  <div id="mergeTargetsChips" style="margin-top:8px;"></div>
+  <div id="mergeTargetNetInfo"></div>
+
+  <!-- 锚点选择 + 预检结果 -->
+  <div id="mergeResult"></div>
+  <div class="toolbar hidden" id="mergeConfirmBar" style="margin-top:12px;">
+    <button class="btn-success" onclick="doMergeConfirm()" id="btnMergeConfirm">✅ 执行合并导入</button>
+  </div>
+</div>
+
+<!-- ====================== 导入面板 ====================== -->
+<div class="card hidden" id="importCard">
+  <h2>③ 导入到目标站点</h2>
+  <div class="row">
+    <div class="field">
+      <label>目标组织</label>
+      <select id="importOrgSelect" onchange="onImportOrgChange()">
+        <option value="">-- 选择 --</option>
+      </select>
+    </div>
+    <div class="field net-search-field" id="importNetField">
+      <label>目标站点/模板（输入名称搜索）</label>
+      <input type="text" id="importNetSearch" class="net-search-input"
+             placeholder="-- 先选组织 --" disabled autocomplete="off">
+      <input type="hidden" id="importNetSelect">
+      <div class="net-dropdown hidden" id="importNetDropdown"></div>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn-ghost" onclick="loadTargetIndex()">🔄 加载目标对象索引</button>
+    </div>
+  </div>
+  <div id="targetIndexInfo" class="status"></div>
+  <div id="targetNetInfo"></div>
+  <div class="toolbar" style="margin-top:12px;">
+    <button class="btn-primary" onclick="doImportPreview()" id="btnPreview" disabled>🔍 预检（匹配对象）</button>
+    <button class="btn-success hidden" onclick="doImportConfirm()" id="btnConfirm">✅ 执行导入</button>
+  </div>
+  <div id="importResult"></div>
+</div>
+
+<!-- ====================== 决策模态框 ====================== -->
+<div class="modal-bg hidden" id="decisionModal">
+  <div class="modal">
+    <h3>⚠️ 以下对象在目标组织找不到匹配，请逐条决策</h3>
+    <p style="font-size:12px;color:#6b6b66;margin-bottom:12px;">
+      对象值无法在目标组织自动匹配（按名称/实际值/组名）。请选择处理方式：
+      <b>创建对象</b>=在目标组织新建对象并引用；<b>当字面值</b>=直接用 IP/域名不建对象；<b>跳过规则</b>=不导入该条规则。<br>
+      📶 若缺失项是 <code>VLAN(标签)</code> 引用（目标网络没有对应 VLAN 或未启用 VLAN），无法自动映射：
+      选<b>跳过规则</b>忽略该条；或在「新对象名」里填目标子网 CIDR（如 <code>192.168.20.0/24</code>）并选<b>当字面值</b>。
+    </p>
+    <div class="toolbar">
+      <button class="btn-ghost btn-sm" onclick="setAllDecisions('create')">全部创建对象</button>
+      <button class="btn-ghost btn-sm" onclick="setAllDecisions('literal')">全部当字面值</button>
+      <button class="btn-ghost btn-sm" onclick="setAllDecisions('skip')">全部跳过</button>
+    </div>
+    <div class="table-wrap" style="margin-top:10px;">
+      <table class="decision-table">
+        <thead>
+          <tr>
+            <th>规则#</th><th>字段</th><th>对象值</th>
+            <th>决策</th><th>新对象名（创建时可选）</th>
+          </tr>
+        </thead>
+        <tbody id="decisionBody"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:14px; text-align:right;">
+      <button class="btn-primary" onclick="confirmDecisions()">确认决策</button>
+      <button class="btn-ghost" onclick="closeDecisionModal()">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== 对象清单模态框 ====================== -->
+<div class="modal-bg hidden" id="objectsModal">
+  <div class="modal">
+    <h3>📋 规则引用的对象 / 对象组清单 <span id="objectsModalCount" style="font-size:13px;color:#6b6b66;font-weight:normal;"></span></h3>
+    <p style="font-size:12px;color:#6b6b66;margin-bottom:12px;">
+      以下对象被当前防火墙规则引用。导入到新站点时，系统会按名称或实际值在目标组织自动匹配；
+      匹配不上的会在导入预检时提示你决策。
+    </p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>ID</th><th>名称</th><th>类型</th><th>实际值</th></tr>
+        </thead>
+        <tbody id="objectsModalBody"></tbody>
+      </table>
+    </div>
+    <div style="margin-top:14px; text-align:right;">
+      <button class="btn-ghost" onclick="closeObjectsModal()">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- ====================== CIDR 段编辑模态器 ====================== -->
+<div class="modal-bg hidden" id="cidrEditorModal">
+  <div class="modal" style="width:560px;">
+    <h3>✎ 编辑 CIDR <span id="cidrEditorTitle" style="font-size:13px;color:#6b6b66;font-weight:normal;"></span></h3>
+    <p style="font-size:12px;color:#6b6b66;margin-bottom:12px;">
+      每行一段（逗号会自动拆分）。可输入<b>对象名</b>（保存时自动转 OBJ/GRP id）、IP、CIDR、FQDN、<code>Any</code>；
+      输入对象名时会下拉匹配，点击选中。
+    </p>
+    <div class="seg-editor" id="cidrSegList"></div>
+    <div style="margin-top:10px;">
+      <button class="btn-ghost btn-sm" onclick="cidrEditorAddSeg()">➕ 添加一段</button>
+    </div>
+    <div id="cidrEditorHint" style="font-size:11px;color:#6b6b66;margin-top:8px;"></div>
+    <div style="margin-top:14px; text-align:right;">
+      <button class="btn-primary" onclick="cidrEditorSave()">保存</button>
+      <button class="btn-ghost" onclick="closeCidrEditor()">取消</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ====================== 状态 ======================
+let organizations = [];
+let currentRules = [];
+let currentObjectsMap = [];
+let exportContext = null;       // 导出端上下文（模板信息）
+let pendingMissing = [];       // 预检返回的缺失项
+let pendingDecisions = {};     // {value: {action, new_name}}
+let lastPreviewData = null;
+
+// ====================== 工具 ======================
+async function api(path, opts={}) {
+  const r = await fetch(path, opts);
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+function setStatus(msg, loading=false) {
+  const el = document.getElementById('globalStatus');
+  // 自动识别状态类型：加载 / 成功(✅) / 失败(❌) / 普通
+  let type = 'idle', icon = '●';
+  if (loading) { type = 'loading'; icon = '◐'; }
+  else if (/^[✅❌]/.test(msg)) {
+    type = msg.startsWith('✅') ? 'success' : 'error';
+    icon = msg.startsWith('✅') ? '✅' : '⚠️';
+  }
+  el.className = 'status-bar ' + type;
+  const spinner = loading ? '<span class="loading"></span>' : '';
+  el.innerHTML = `<span class="sb-icon">${icon}</span>` +
+    `<span class="sb-text">${esc(msg)}</span>${spinner}`;
+}
+function show(el) { el.classList.remove('hidden'); }
+function hide(el) { el.classList.add('hidden'); }
+
+// ====================== 初始化 ======================
+async function init() {
+  try {
+    organizations = await api('/api/organizations');
+    fillOrgSelect('orgSelect', organizations);
+    fillOrgSelect('importOrgSelect', organizations);
+  } catch (e) {
+    setStatus('❌ 加载组织失败: ' + e.message);
+  }
+}
+function fillOrgSelect(id, orgs) {
+  const sel = document.getElementById(id);
+  sel.innerHTML = '<option value="">-- 选择组织 --</option>' +
+    orgs.map(o => `<option value="${o.id}">${o.name}</option>`).join('');
+}
+
+// ====================== 组织/站点联动（站点用模糊搜索框）======================
+let netList = [];          // 当前组织的网络列表
+let netActiveIdx = -1;     // 键盘上下选中的索引
+
+async function onOrgChange() {
+  const orgId = document.getElementById('orgSelect').value;
+  const searchInput = document.getElementById('netSearch');
+  const hidden = document.getElementById('netSelect');
+  document.getElementById('btnExport').disabled = true;
+  document.getElementById('btnImport').disabled = true;
+  document.getElementById('networkInfo').innerHTML = '';
+  hidden.value = '';
+  netList = [];
+  closeNetDropdown();
+  if (!orgId) {
+    searchInput.value = '';
+    searchInput.disabled = true;
+    searchInput.placeholder = '-- 先选组织 --';
+    return;
+  }
+  searchInput.disabled = true;
+  searchInput.value = '';
+  searchInput.placeholder = '加载中...';
+  try {
+    // 并行拉取网络 + 模板，合并到一个列表（模板带 is_template 标记）
+    const [nets, tmpls] = await Promise.all([
+      api(`/api/networks?org_id=${orgId}`),
+      api(`/api/templates?org_id=${orgId}`).catch(() => []),
+    ]);
+    netList = [
+      ...nets.map(n => ({...n, is_template: false})),
+      ...tmpls.map(t => ({...t, is_template: true, bound_to_template: false})),
+    ];
+    searchInput.disabled = false;
+    const netCnt = nets.length, tmplCnt = tmpls.length;
+    searchInput.placeholder = `输入站点/模板名称搜索（${netCnt} 站点 + ${tmplCnt} 模板）...`;
+  } catch (e) {
+    searchInput.placeholder = '加载失败';
+    setStatus('❌ ' + e.message);
+  }
+}
+
+// 模糊匹配：大小写不敏感，支持名称任意位置包含；匹配为空则按 id 兜底
+function fuzzyFilter(list, query) {
+  if (!query.trim()) return list;
+  const q = query.trim().toLowerCase();
+  return list.filter(n =>
+    n.name.toLowerCase().includes(q) || String(n.id).toLowerCase().includes(q)
+  );
+}
+// 高亮匹配片段
+function highlight(text, query) {
+  if (!query.trim()) return esc(text);
+  const q = query.trim();
+  const idx = text.toLowerCase().indexOf(q.toLowerCase());
+  if (idx < 0) return esc(text);
+  return esc(text.slice(0, idx)) + '<mark>' + esc(text.slice(idx, idx+q.length)) + '</mark>' + esc(text.slice(idx+q.length));
+}
+
+function renderNetDropdown(query) {
+  const dd = document.getElementById('netDropdown');
+  const filtered = fuzzyFilter(netList, query).slice(0, 100); // 最多渲染100条避免卡顿
+  netActiveIdx = filtered.length ? 0 : -1;
+  if (!filtered.length) {
+    dd.innerHTML = '<div class="dd-empty">没有匹配的站点或模板</div>';
+    show(dd);
+    return;
+  }
+  dd.innerHTML = filtered.map((n, i) => {
+    // 区分三种标记：模板本身、绑定模板的网络、普通网络
+    let tag = '';
+    if (n.is_template) tag = '<span class="dd-tag dd-tag-tmpl">📋模板</span>';
+    else if (n.bound_to_template) tag = '<span class="dd-tag dd-tag-bound">🔗绑模板</span>';
+    return `<div class="dd-item${i===0?' active':''}" data-idx="${i}"
+        data-id="${esc(n.id)}" data-name="${esc(n.name)}" data-is-tmpl="${n.is_template?1:0}">
+      <span class="dd-name">${highlight(n.name, query)}</span>${tag}
+    </div>`;
+  }).join('');
+  show(dd);
+}
+function closeNetDropdown() { hide(document.getElementById('netDropdown')); }
+
+function selectNet(id, name) {
+  const hidden = document.getElementById('netSelect');
+  const searchInput = document.getElementById('netSearch');
+  hidden.value = id;
+  searchInput.value = name;
+  closeNetDropdown();
+  onNetChange();
+}
+
+// 搜索框事件绑定
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('netSearch');
+  const dd = document.getElementById('netDropdown');
+  input.addEventListener('input', () => {
+    document.getElementById('netSelect').value = ''; // 重新输入则清空已选
+    document.getElementById('btnExport').disabled = true;
+    document.getElementById('btnImport').disabled = true;
+    renderNetDropdown(input.value);
+  });
+  input.addEventListener('focus', () => {
+    if (netList.length) renderNetDropdown(input.value);
+  });
+  // 键盘导航：上下选、回车确认、Esc 关闭
+  input.addEventListener('keydown', (e) => {
+    const items = dd.querySelectorAll('.dd-item');
+    if (e.key === 'ArrowDown' && items.length) {
+      e.preventDefault();
+      netActiveIdx = Math.min(netActiveIdx + 1, items.length - 1);
+      updateActive(items);
+    } else if (e.key === 'ArrowUp' && items.length) {
+      e.preventDefault();
+      netActiveIdx = Math.max(netActiveIdx - 1, 0);
+      updateActive(items);
+    } else if (e.key === 'Enter' && netActiveIdx >= 0 && items[netActiveIdx]) {
+      e.preventDefault();
+      items[netActiveIdx].click();
+    } else if (e.key === 'Escape') {
+      closeNetDropdown();
+    }
+  });
+  // 点击下拉项
+  dd.addEventListener('click', (e) => {
+    const item = e.target.closest('.dd-item');
+    if (item) selectNet(item.dataset.id, item.dataset.name);
+  });
+  // 点击页面其他地方关闭下拉
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.net-search-field')) closeNetDropdown();
+  });
+});
+function updateActive(items) {
+  items.forEach((it, i) => it.classList.toggle('active', i === netActiveIdx));
+  // 滚动到可视区
+  const active = items[netActiveIdx];
+  if (active && active.scrollIntoView) active.scrollIntoView({block:'nearest'});
+}
+
+async function onNetChange() {
+  const netId = document.getElementById('netSelect').value;
+  const orgId = document.getElementById('orgSelect').value;
+  document.getElementById('networkInfo').innerHTML = '';
+  document.getElementById('btnExport').disabled = !netId;
+  document.getElementById('btnImport').disabled = !netId;
+  if (!netId) return;
+  try {
+    const info = await api(`/api/network-info?network_id=${netId}&org_id=${orgId}`);
+    exportContext = info;
+    let html = '';
+    if (info.is_template) {
+      // 选中的是模板本身
+      html = `<div class="alert alert-warn">📋 当前选择的是<b>配置模板</b>「<b>${info.config_template_name||info.network_name||netId}</b>」。
+        规则将<b>直接读取/写入该模板</b>，修改会影响所有绑定该模板的站点（共 ${info.bound_network_count??'?'} 个）。
+        目标 id：<code>${info.target_id}</code></div>`;
+    } else if (info.bound_to_template) {
+      html = `<div class="alert alert-warn">⚠️ 该站点已绑定配置模板「<b>${info.config_template_name||info.config_template_id}</b>」。
+        规则将<b>读取/写入到模板</b>，修改会影响所有绑定该模板的站点（共 ${info.bound_network_count??'?'} 个）。
+        目标 id 已自动切换为模板：<code>${info.target_id}</code></div>`;
+    } else {
+      html = `<div class="alert alert-info">✅ 普通站点，规则直接在该 network 上读写。目标 id：<code>${info.target_id}</code></div>`;
+    }
+    document.getElementById('networkInfo').innerHTML = html;
+  } catch (e) {
+    setStatus('❌ 获取站点信息失败: ' + e.message);
+  }
+}
+
+// ====================== 导出 ======================
+async function doExport() {
+  const orgId = document.getElementById('orgSelect').value;
+  const netId = document.getElementById('netSelect').value;
+  if (!orgId || !netId) return;
+  setStatus('正在导出规则并按需解析对象引用...', true);
+  show(document.getElementById('exportCard'));
+  try {
+    const data = await api(`/api/export?org_id=${orgId}&network_id=${netId}`);
+    currentRules = data.rules;
+    currentObjectsMap = data.objects_map || [];
+    exportContext = data.context;
+    renderRulesTable();
+    renderObjectsList();
+    let alert = '';
+    if (exportContext && exportContext.bound_to_template) {
+      alert = `<div class="alert alert-warn">⚠️ 当前规则来自模板「${exportContext.config_template_name||''}」，
+        导入到模板将影响 ${exportContext.bound_network_count??'?'} 个绑定站点。</div>`;
+    }
+    document.getElementById('exportAlert').innerHTML = alert;
+    setStatus(`✅ 导出完成：${currentRules.length} 条规则，引用 ${currentObjectsMap.length} 个对象/组`);
+    // 导出后异步拉取完整对象索引（供名称化显示 + 搜索 + name→id 转换），不阻塞渲染
+    loadFullObjIndex(orgId);
+  } catch (e) {
+    setStatus('❌ 导出失败: ' + e.message);
+  }
+}
+
+// 拉取完整对象索引并重建表格显示（按 name 显示）
+async function loadFullObjIndex(orgId) {
+  if (!orgId) return;
+  try {
+    const data = await api(`/api/objects-data?org_id=${orgId}`);
+    buildFullObjIndex(data);
+    // 索引就绪后重渲染表格（OBJ(id) → name 显示）+ 刷新查询卡片状态
+    renderRulesTable();
+    updateSearchCardStatus();
+    console.log(`对象索引已加载：${data.objects.length} 对象 + ${data.groups.length} 组${data.cached ? '（命中缓存）' : ''}`);
+  } catch (e) {
+    console.warn('对象索引加载失败:', e.message);
+    updateSearchCardStatus();
+  }
+}
+
+// ====================== 对象查询卡片逻辑 ======================
+function updateSearchCardStatus() {
+  const el = document.getElementById('objSearchStatus');
+  if (!el) return;
+  const n = fullObjIndex.objects.length + fullObjIndex.groups.length;
+  if (n) { el.textContent = `已加载 ${fullObjIndex.objects.length} 对象 + ${fullObjIndex.groups.length} 组`; el.classList.add('ready'); }
+  else { el.textContent = '未加载对象索引（导出后自动加载）'; el.classList.remove('ready'); }
+}
+// 输入时自动判断类型提示（不立即搜索，回车或点搜索按钮才查全量）
+function onObjSearchInput() { /* 预留：实时搜索可在此触发 doObjSearch() */ }
+function doObjSearch() {
+  const q = document.getElementById('objSearchInput').value.trim();
+  if (!q) { clearObjSearch(); return; }
+  if (!fullObjIndex.objects.length && !fullObjIndex.groups.length) {
+    renderObjSearchResults([], '对象索引未加载，请先导出规则');
+    return;
+  }
+  const results = searchObjects(q, 200);
+  const mode = isIPv4(q) ? 'IP 子网包含' : '名称/FQDN 模糊';
+  renderObjSearchResults(results, `「${q}」(${mode}) 命中 ${results.length} 项`);
+}
+function clearObjSearch() {
+  document.getElementById('objSearchInput').value = '';
+  document.getElementById('objSearchResults').innerHTML = '';
+}
+function renderObjSearchResults(results, summary) {
+  const box = document.getElementById('objSearchResults');
+  if (!summary && (!results || !results.length)) {
+    box.innerHTML = '<div style="color:var(--c-mid);font-size:12px;padding:8px 2px;">无匹配结果</div>';
+    return;
+  }
+  let html = summary ? `<div style="font-size:11px;color:#6b6b66;padding:4px 2px 6px;">${esc(summary)}</div>` : '';
+  if (results && results.length) {
+    html += results.map(r => {
+      const ref = `${r.kind}(${r.id})`;
+      const valDisplay = r.type === 'group' || r.kind === 'GRP' ? (r.value || '').split(';').slice(0,3).join('; ') + ((r.value||'').split(';').length>3?'…':'') : (r.value||'');
+      return `<div class="obj-res-item">
+        <span class="obj-res-kind ${r.kind}">${r.kind}</span>
+        <span class="obj-res-name">${esc(r.name)}</span>
+        <span class="obj-res-val" title="${esc(r.value||'')}">${esc(valDisplay)}</span>
+        <span class="obj-res-why">${esc(r.matched||'')}</span>
+        <button class="btn-ghost btn-sm obj-res-copy" onclick="copyText('${esc(ref)}', this)">复制 ${esc(r.kind)}(id)</button>
+        <button class="btn-ghost btn-sm obj-res-copy" onclick="copyText('${esc(r.name)}', this)">复制名</button>
+      </div>`;
+    }).join('');
+  }
+  box.innerHTML = html;
+}
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const old = btn.textContent; btn.textContent = '✅ 已复制';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  }).catch(() => {
+    // 回退：选中文本
+    const ta = document.createElement('textarea'); ta.value = text; document.body.appendChild(ta);
+    ta.select(); try { document.execCommand('copy'); } catch(_){}
+    document.body.removeChild(ta);
+    const old = btn.textContent; btn.textContent = '✅ 已复制';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  });
+}
+
+// 对象引用缓存：{ "OBJ_506": {name,type,value}, "GRP_609": {name, members:[...]} }
+let objRefCache = {};
+function buildObjRefCache() {
+  objRefCache = {};
+  currentObjectsMap.forEach(o => {
+    const key = (o.type === 'group' ? 'GRP_' : 'OBJ_') + o.obj_id;
+    objRefCache[key] = o;
+  });
+}
+
+// ====================== 完整对象索引（全 org，供搜索 + name↔id 转换）======================
+let fullObjIndex = { objects: [], groups: [], byId: {}, byName: {} };
+
+// 从 /api/objects-data 返回构建本地多键索引
+function buildFullObjIndex(data) {
+  const objects = data.objects || [];
+  const groups = data.groups || [];
+  const byId = {};        // "OBJ_506" / "GRP_609" -> {id,name,type,value,kind}
+  const byName = {};      // name(lower) -> [{kind,id}]
+  objects.forEach(o => {
+    const entry = { kind: 'OBJ', id: String(o.id), name: o.name, type: o.type, value: o.value };
+    byId['OBJ_' + o.id] = entry;
+    const lk = (o.name || '').toLowerCase();
+    if (lk) (byName[lk] = byName[lk] || []).push(entry);
+  });
+  groups.forEach(g => {
+    const entry = { kind: 'GRP', id: String(g.id), name: g.name, type: 'group', value: g.value };
+    byId['GRP_' + g.id] = entry;
+    const lk = (g.name || '').toLowerCase();
+    if (lk) (byName[lk] = byName[lk] || []).push(entry);
+  });
+  fullObjIndex = { objects, groups, byId, byName };
+  return fullObjIndex;
+}
+// 按 OBJ(id)/GRP(id) 段查显示名（查不到返回原段，标记 unknown 由调用方处理）
+function refDisplayName(seg) {
+  const m = seg.match(/^(OBJ|GRP)\((\d+)\)$/);
+  if (!m) return seg;
+  const e = fullObjIndex.byId[m[1] + '_' + m[2]];
+  return e ? e.name : seg;
+}
+function refIsKnown(seg) {
+  const m = seg.match(/^(OBJ|GRP)\((\d+)\)$/);
+  return !!(m && fullObjIndex.byId[m[1] + '_' + m[2]]);
+}
+// 把用户输入的一段文本转成 API 友好的 OBJ(id)/GRP(id) 或原样字面值
+function segTextToRef(text) {
+  const t = text.trim();
+  if (!t) return t;
+  // 直接是 OBJ()/GRP() 原始形式 → 原样
+  if (/^(OBJ|GRP)\(\d+\)$/.test(t)) return t;
+  // 是已知对象名（精确匹配，大小写不敏感）→ 转 id
+  const hits = fullObjIndex.byName[t.toLowerCase()];
+  if (hits && hits.length) {
+    const e = hits[0];
+    return `${e.kind}(${e.id})`;
+  }
+  return t; // IP/CIDR/FQDN/Any/VLAN 等字面值原样
+}
+
+// ====================== IP / 子网包含算法 ======================
+// IPv4 → 32位整数。非法返回 null。
+function ipv4ToInt(ip) {
+  const m = String(ip).match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) return null;
+  const parts = [+m[1], +m[2], +m[3], +m[4]];
+  if (parts.some(p => p > 255)) return null;
+  return ((parts[0] << 24) >>> 0) + (parts[1] << 16) + (parts[2] << 8) + parts[3];
+}
+const IP_RE = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
+function isIPv4(s) { const m = String(s).match(IP_RE); return !!(m && [+m[1],+m[2],+m[3],+m[4]].every(p=>p<=255)); }
+// 判断 ip 是否属于 CIDR（cidr 如 10.0.0.0/8）。cidr 无掩码时按精确 IP 匹配。
+function ipInCidr(ip, cidr) {
+  const ipInt = ipv4ToInt(ip);
+  if (ipInt === null) return false;
+  const c = String(cidr).trim();
+  const slash = c.indexOf('/');
+  const base = slash >= 0 ? c.slice(0, slash) : c;
+  const mask = slash >= 0 ? parseInt(c.slice(slash + 1), 10) : 32;
+  if (isNaN(mask) || mask < 0 || mask > 32) return false;
+  const baseInt = ipv4ToInt(base);
+  if (baseInt === null) return false;
+  if (mask === 0) return true;
+  const maskInt = mask === 32 ? 0xFFFFFFFF : ((0xFFFFFFFF << (32 - mask)) >>> 0);
+  return (ipInt & maskInt) >>> 0 === (baseInt & maskInt) >>> 0;
+}
+
+// 统一搜索：返回 [{kind,id,name,type,value,matched:为何命中}]
+function searchObjects(query, limit) {
+  const q = (query || '').trim();
+  limit = limit || 200;
+  if (!q) return [];
+  const results = [];
+  const ipMode = isIPv4(q);
+  const ql = q.toLowerCase();
+  const push = (e, why) => {
+    if (results.length >= limit) return;
+    results.push({ kind: e.kind, id: e.id, name: e.name, type: e.type, value: e.value, matched: why });
+  };
+  if (ipMode) {
+    // IP 模式：遍历所有对象/组的 value，判断子网包含或精确相等
+    fullObjIndex.objects.forEach(o => {
+      const e = fullObjIndex.byId['OBJ_' + o.id];
+      if (e && ipInCidr(q, o.value)) push(e, `IP 属于 ${o.value}`);
+    });
+    fullObjIndex.groups.forEach(g => {
+      // 组：检查展开值的每一段
+      const segs = (g.value || '').split(';').filter(s => s.trim());
+      for (const s of segs) {
+        if (ipInCidr(q, s)) {
+          const e = fullObjIndex.byId['GRP_' + g.id];
+          if (e) { push(e, `IP 属于组内 ${s}`); break; }
+        }
+      }
+    });
+  } else {
+    // 名字/FQDN 模糊：匹配 name 或 value（fqdn）
+    const match = (txt) => txt && txt.toLowerCase().includes(ql);
+    fullObjIndex.objects.forEach(o => {
+      const e = fullObjIndex.byId['OBJ_' + o.id];
+      if (!e) return;
+      if (match(o.name)) push(e, '名称匹配');
+      else if (o.type === 'fqdn' && match(o.value)) push(e, 'FQDN 匹配');
+    });
+    fullObjIndex.groups.forEach(g => {
+      const e = fullObjIndex.byId['GRP_' + g.id];
+      if (e && match(g.name)) push(e, '组名匹配');
+    });
+  }
+  return results;
+}
+// 渲染 CIDR 单元格：原始值含 OBJ()/GRP() 的段渲染为可点击，其余为普通 input
+function cidrCellHTML(val, i, field) {
+  // 拆段，逐段判断是否对象引用
+  const segs = String(val || '').split(',').map(s => s.trim()).filter(s => s !== '');
+  if (!segs.length) {
+    return `<input type="text" value="" data-idx="${i}" data-k="${field}">`;
+  }
+  // 若整段没有任何 OBJ/GRP，直接用普通 input（便于整体编辑）
+  const hasRef = segs.some(s => /^(OBJ|GRP)\(\d+\)$/.test(s));
+  if (!hasRef) {
+    return `<input type="text" value="${esc(val)}" data-idx="${i}" data-k="${field}">`;
+  }
+  // 含对象引用：逐段渲染。引用段显示对象名（查不到则显示 OBJ(id) 并标 unknown），字面段原样
+  const partsHtml = segs.map(s => {
+    const m = s.match(/^(OBJ|GRP)\((\d+)\)$/);
+    if (m) {
+      const key = m[1] + '_' + m[2];
+      // 优先用全量索引查名（更全），回退到导出时的 objRefCache
+      const fullEntry = fullObjIndex.byId[key];
+      const display = fullEntry ? fullEntry.name : (objRefCache[key] ? objRefCache[key].name : s);
+      const known = (fullEntry || objRefCache[key]) ? '' : ' unknown';
+      return `<span class="obj-ref${known}" data-ref="${key}" data-field="${field}" data-idx="${i}" title="${esc(s)}">${esc(display)}</span>`;
+    }
+    return `<span class="cidr-literal">${esc(s)}</span>`;
+  }).join('<span style="color:#bbb;">,</span>');
+  // 同时保留一个隐藏 input 存原始值，点击对象时不改变它；编辑时弹出单独的编辑入口
+  return `<div class="cidr-cell">
+    <div class="cidr-segments">${partsHtml}</div>
+    <input type="hidden" data-idx="${i}" data-k="${field}" value="${esc(val)}">
+    <button class="btn-ghost btn-sm cidr-edit-btn" data-idx="${i}" data-k="${field}" data-orig="${esc(val)}">✎ 编辑</button>
+  </div>`;
+}
+
+function renderRulesTable() {
+  buildObjRefCache();
+  const body = document.getElementById('rulesBody');
+  body.innerHTML = '';
+  currentRules.forEach((r, i) => {
+    const tr = document.createElement('tr');
+    if (r.is_default) tr.className = 'default-rule';
+    tr.dataset.idx = i;
+    tr.innerHTML = `
+      <td class="col-select"><input type="checkbox" class="row-check" data-idx="${i}"></td>
+      <td>${i+1}${r.is_default?'<div class="resolved-hint">默认</div>':''}</td>
+      <td><input type="text" value="${esc(r.comment)}" data-idx="${i}" data-k="comment"></td>
+      <td>${policySelect(r.policy, i)}</td>
+      <td><input type="text" value="${esc(r.protocol)}" data-idx="${i}" data-k="protocol"></td>
+      <td><input type="text" value="${esc(r.srcPort)}" data-idx="${i}" data-k="srcPort"></td>
+      <td>${cidrCellHTML(r.srcCidr, i, 'srcCidr')}</td>
+      <td><input type="text" value="${esc(r.destPort)}" data-idx="${i}" data-k="destPort"></td>
+      <td>${cidrCellHTML(r.destCidr, i, 'destCidr')}</td>
+      <td><input type="checkbox" ${r.syslogEnabled?'checked':''} data-idx="${i}" data-k="syslogEnabled" data-ctype="checkbox"></td>
+      <td class="col-move">${moveCellHTML(i)}</td>
+      <td><button class="btn-danger btn-sm" onclick="deleteRow(${i})">✕</button></td>
+    `;
+    body.appendChild(tr);
+  });
+  document.getElementById('ruleCount').textContent = `共 ${currentRules.length} 条`;
+  // 重渲染后基于 selectedIdx 恢复勾选态与高亮
+  updateSelectionFromDOM();
+  updateBatchButtons();
+}
+// 移动列：↑↓ 按钮（批量选中时禁用单行按钮，改用拖拽整组）+ 拖拽手柄
+function moveCellHTML(i) {
+  const hasMulti = selectedIdx.size > 1;
+  const atTop = i === 0;
+  const atBot = i === currentRules.length - 1;
+  return `<span class="drag-handle" data-idx="${i}" draggable="true" title="拖拽移动">⋮⋮</span>
+    <button class="move-btn" onclick="moveRow(${i},-1)" ${atTop||hasMulti?'disabled':''} title="上移">↑</button>
+    <button class="move-btn" onclick="moveRow(${i},1)" ${atBot||hasMulti?'disabled':''} title="下移">↓</button>`;
+}
+function policySelect(val, i) {
+  const opts = ['allow','deny'].map(p =>
+    `<option value="${p}" ${p===val?'selected':''}>${p}</option>`).join('');
+  return `<select data-idx="${i}" data-k="policy">${opts}</select>`;
+}
+function esc(s) {
+  return String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function renderObjectsList() {
+  // 更新工具栏按钮上的对象计数提示
+  const btn = document.getElementById('btnObjects');
+  if (btn) {
+    btn.textContent = currentObjectsMap.length
+      ? `📋 引用对象清单 (${currentObjectsMap.length})`
+      : '📋 引用对象清单';
+  }
+}
+function showObjectsModal() {
+  const body = document.getElementById('objectsModalBody');
+  const countEl = document.getElementById('objectsModalCount');
+  if (!currentObjectsMap.length) {
+    body.innerHTML = '<tr><td colspan="4" style="color:#999;text-align:center;padding:20px;">（规则未引用任何对象）</td></tr>';
+    countEl.textContent = '';
+  } else {
+    countEl.textContent = `共 ${currentObjectsMap.length} 个`;
+    body.innerHTML = currentObjectsMap.map(o => `
+      <tr><td>${esc(o.obj_id)}</td><td>${esc(o.name)}</td>
+      <td>${esc(o.type)}</td><td style="word-break:break-all;">${esc(o.value)}</td></tr>`).join('');
+  }
+  show(document.getElementById('objectsModal'));
+}
+function closeObjectsModal() { hide(document.getElementById('objectsModal')); }
+
+// ====================== CIDR 段编辑模态器（内联搜索 + name→id 转换）======================
+let cidrEditorCtx = null;  // {idx, field, segs:[{text}]}
+
+function openCidrEditor(idx, field) {
+  const raw = currentRules[idx][field] || '';
+  // 按逗号拆段；空值给一个空段
+  let segs = splitCidrSegsForEditor(raw);
+  if (!segs.length) segs = [{text:''}];
+  cidrEditorCtx = { idx, field, segs };
+  document.getElementById('cidrEditorTitle').textContent =
+    `（第 ${idx+1} 行 ${field === 'srcCidr' ? '源 CIDR' : '目的 CIDR'}）`;
+  renderCidrSegList();
+  document.getElementById('cidrEditorHint').textContent = '';
+  show(document.getElementById('cidrEditorModal'));
+}
+function splitCidrSegsForEditor(raw) {
+  return String(raw || '').split(',').map(s => s.trim()).filter(s => s !== '').map(s => ({text:s}));
+}
+function closeCidrEditor() { hide(document.getElementById('cidrEditorModal')); cidrEditorCtx = null; }
+function cidrEditorAddSeg() {
+  if (!cidrEditorCtx) return;
+  cidrEditorCtx.segs.push({text:''});
+  renderCidrSegList();
+}
+function cidrEditorDelSeg(idx) {
+  if (!cidrEditorCtx) return;
+  cidrEditorCtx.segs.splice(idx, 1);
+  if (!cidrEditorCtx.segs.length) cidrEditorCtx.segs.push({text:''});
+  renderCidrSegList();
+}
+function renderCidrSegList() {
+  const list = document.getElementById('cidrSegList');
+  list.innerHTML = '';
+  cidrEditorCtx.segs.forEach((seg, idx) => {
+    const row = document.createElement('div');
+    row.className = 'seg-row';
+    // 显示：若是 OBJ/GRP 引用，展示对象名（便于阅读），但保留原段
+    const display = seg.text && /^(OBJ|GRP)\(\d+\)$/.test(seg.text) ? refDisplayName(seg.text) : seg.text;
+    row.innerHTML = `
+      <input type="text" class="seg-val" value="${esc(display)}" data-segidx="${idx}"
+        placeholder="对象名 / IP / CIDR / FQDN / Any" oninput="onSegInput(this, ${idx})">
+      <button class="btn-danger btn-sm" onclick="cidrEditorDelSeg(${idx})">✕</button>
+      <div class="seg-suggestions" data-sugfor="${idx}"></div>`;
+    list.appendChild(row);
+  });
+}
+// 段输入时：保存显示文本 + 实时下拉匹配对象
+function onSegInput(input, segIdx) {
+  if (!cidrEditorCtx) return;
+  cidrEditorCtx.segs[segIdx].text = input.value;
+  const sugBox = document.querySelector(`.seg-suggestions[data-sugfor="${segIdx}"]`);
+  if (!sugBox) return;
+  const q = input.value.trim();
+  // 输入是 OBJ()/GRP() 或明显字面值（IP/CIDR/Any/空）时不弹建议
+  if (!q || /^(OBJ|GRP)\(\d+\)$/.test(q) || isIPv4(q) || q.includes('/') || q.toLowerCase() === 'any') {
+    sugBox.innerHTML = ''; return;
+  }
+  const results = searchObjects(q, 8);
+  if (!results.length) { sugBox.innerHTML = ''; return; }
+  sugBox.innerHTML = results.map(r => `
+    <div class="seg-sug-item" onclick="pickSegSuggestion(${segIdx}, '${esc(r.kind)}','${esc(r.id)}','${esc(r.name)}')">
+      <b>${esc(r.kind)}</b> ${esc(r.name)}
+      <span style="color:#6b6b66;"> — ${esc((r.value||'').slice(0,40))}${(r.value||'').length>40?'…':''}</span>
+    </div>`).join('');
+}
+// 选中建议：把段设为 OBJ(id)/GRP(id)，输入框显示对象名
+function pickSegSuggestion(segIdx, kind, id, name) {
+  if (!cidrEditorCtx) return;
+  cidrEditorCtx.segs[segIdx].text = `${kind}(${id})`;
+  // 重渲染该行输入框为名称
+  const input = document.querySelector(`.seg-val[data-segidx="${segIdx}"]`);
+  if (input) input.value = name;
+  const sugBox = document.querySelector(`.seg-suggestions[data-sugfor="${segIdx}"]`);
+  if (sugBox) sugBox.innerHTML = '';
+}
+// 保存：把每段显示文本转成 API 友好形式（对象名→OBJ/GRP id），写回 currentRules
+function cidrEditorSave() {
+  if (!cidrEditorCtx) return;
+  const { idx, field, segs } = cidrEditorCtx;
+  const finalSegs = [];
+  const notes = [];
+  for (const seg of segs) {
+    const t = seg.text.trim();
+    if (!t) continue;
+    const ref = segTextToRef(t);  // 对象名→id，其余原样
+    if (/^(OBJ|GRP)\(\d+\)$/.test(ref)) {
+      // 校验该 id 是否存在
+      const known = refIsKnown(ref);
+      if (!known) notes.push(`⚠️ ${ref} 在索引中不存在`);
+    }
+    finalSegs.push(ref);
+  }
+  currentRules[idx][field] = finalSegs.join(',');
+  closeCidrEditor();
+  renderRulesTable();
+  if (notes.length) setStatus(notes[0] + (notes.length > 1 ? ` 等 ${notes.length} 项` : ''));
+}
+
+// ====================== 表格编辑同步 ======================
+document.addEventListener('change', e => {
+  const t = e.target;
+  // 行选择复选框：走选择逻辑，不进入字段同步
+  if (t.classList && t.classList.contains('row-check')) {
+    syncSelectionFromChecks();
+    updateBatchButtons();
+    return;
+  }
+  if (t.dataset.idx === undefined) return;
+  const i = parseInt(t.dataset.idx), k = t.dataset.k;
+  if (t.dataset.ctype === 'checkbox') currentRules[i][k] = t.checked;
+  else currentRules[i][k] = t.value;
+});
+
+// ====================== 对象引用点击查看解析值 ======================
+let activePopover = null;
+function showObjPopover(refEl, key) {
+  closeObjPopover();
+  // 优先全量索引（更全），回退导出时的 objRefCache
+  const o = fullObjIndex.byId[key] || objRefCache[key];
+  const popover = document.createElement('div');
+  popover.className = 'obj-popover';
+  if (!o) {
+    popover.innerHTML = `<div class="op-name">${esc(key)}</div>
+      <div class="op-row">⚠️ 未找到该对象的解析信息（可能对象已删除或未在本次导出中解析）</div>`;
+  } else if (o.type === 'group' || o.kind === 'GRP') {
+    popover.innerHTML = `<div class="op-name">📋 ${esc(o.name)} <span style="color:#9a988f;font-weight:normal;">(对象组)</span></div>
+      <div class="op-row">类型: <span class="op-val">${esc(o.category||o.type||'group')}</span></div>
+      <div class="op-row">组成员值:</div>
+      <div class="op-members">${esc(o.value||'(空)')}</div>`;
+  } else {
+    popover.innerHTML = `<div class="op-name">🔵 ${esc(o.name)}</div>
+      <div class="op-row">类型: <span class="op-val">${esc(o.type)}</span></div>
+      <div class="op-row">实际值: <span class="op-val" style="color:#788c5d;">${esc(o.value||'(空)')}</span></div>`;
+  }
+  refEl.style.position = 'relative';
+  refEl.appendChild(popover);
+  activePopover = popover;
+}
+function closeObjPopover() {
+  if (activePopover) { activePopover.remove(); activePopover = null; }
+}
+// 点击对象引用段：切换显示/隐藏解析值气泡
+document.addEventListener('click', (e) => {
+  const ref = e.target.closest('.obj-ref');
+  if (ref) {
+    e.stopPropagation();
+    if (activePopover && activePopover.parentElement === ref) {
+      closeObjPopover();
+    } else {
+      showObjPopover(ref, ref.dataset.ref);
+    }
+    return;
+  }
+  // 点击 CIDR 编辑按钮：弹出模态段编辑器（支持对象名内联搜索 + name→id 转换）
+  const editBtn = e.target.closest('.cidr-edit-btn');
+  if (editBtn) {
+    e.stopPropagation();
+    const i = parseInt(editBtn.dataset.idx), k = editBtn.dataset.k;
+    openCidrEditor(i, k);
+    return;
+  }
+  // 点击其他区域关闭气泡
+  if (!e.target.closest('.obj-popover')) closeObjPopover();
+});
+
+function deleteRow(i) {
+  currentRules.splice(i, 1);
+  renderRulesTable();
+}
+function addRuleRow() {
+  currentRules.push({
+    comment:'', policy:'allow', protocol:'tcp', srcPort:'Any',
+    srcCidr:'Any', destPort:'Any',
+    destCidr:'Any', syslogEnabled:false, is_default:false
+  });
+  renderRulesTable();
+}
+
+// ====================== 批量选择 ======================
+let selectedIdx = new Set();   // 被选中规则在 currentRules 中的索引
+let dragSrcIdx = null;         // 拖拽起点行索引
+
+// 把 DOM checkbox 勾选态同步回 selectedIdx，并刷新行高亮
+function syncSelectionFromChecks() {
+  const next = new Set();
+  document.querySelectorAll('.row-check').forEach(cb => {
+    if (cb.checked) next.add(parseInt(cb.dataset.idx));
+  });
+  selectedIdx = next;
+  // 行高亮
+  document.querySelectorAll('#rulesBody tr').forEach(tr => {
+    tr.classList.toggle('selected', selectedIdx.has(parseInt(tr.dataset.idx)));
+  });
+}
+// 重渲染后基于 selectedIdx 恢复勾选态 + 高亮（DOM 是新建的，状态会丢）
+function updateSelectionFromDOM() {
+  // 清理越界索引（删除/复制后数组长度可能变化）
+  selectedIdx = new Set([...selectedIdx].filter(i => i < currentRules.length));
+  document.querySelectorAll('.row-check').forEach(cb => {
+    const i = parseInt(cb.dataset.idx);
+    cb.checked = selectedIdx.has(i);
+  });
+  document.querySelectorAll('#rulesBody tr').forEach(tr => {
+    tr.classList.toggle('selected', selectedIdx.has(parseInt(tr.dataset.idx)));
+  });
+  // 同步全选框三态
+  const sel = document.getElementById('selectAll');
+  if (sel) {
+    sel.checked = currentRules.length > 0 && selectedIdx.size === currentRules.length;
+    sel.indeterminate = selectedIdx.size > 0 && selectedIdx.size < currentRules.length;
+  }
+}
+function toggleAll(master) {
+  if (master.checked) {
+    selectedIdx = new Set(currentRules.map((_, i) => i));
+  } else {
+    selectedIdx = new Set();
+  }
+  updateSelectionFromDOM();
+  updateBatchButtons();
+}
+// 选中索引升序数组
+function getSelectedSorted() {
+  return [...selectedIdx].sort((a, b) => a - b);
+}
+// 刷新工具栏批量按钮的计数与禁用态
+function updateBatchButtons() {
+  const n = selectedIdx.size;
+  document.getElementById('btnCopySelected').disabled = n === 0;
+  document.getElementById('btnDeleteSelected').disabled = n === 0;
+  document.getElementById('btnStageSelected').disabled = n === 0;
+  document.getElementById('batchInfo').textContent =
+    n === 0 ? '未选中规则' : `已选中 ${n} 条`;
+}
+
+// ====================== 批量删除 / 复制 ======================
+function deleteSelected() {
+  const sel = getSelectedSorted();
+  if (!sel.length) return;
+  if (!confirm(`确认删除选中的 ${sel.length} 条规则？`)) return;
+  // 从大到小删除，避免索引错位
+  for (let k = sel.length - 1; k >= 0; k--) currentRules.splice(sel[k], 1);
+  selectedIdx.clear();
+  renderRulesTable();
+  setStatus(`✅ 已删除 ${sel.length} 条规则`);
+}
+function copySelected() {
+  const sel = getSelectedSorted();
+  if (!sel.length) return;
+  // 深拷贝选中规则，整体插入到最大选中索引之后
+  const copies = sel.map(i => {
+    const c = JSON.parse(JSON.stringify(currentRules[i]));
+    c.is_default = false;
+    if (c.comment) c.comment = c.comment + ' (副本)';
+    return c;
+  });
+  const insertAt = sel[sel.length - 1] + 1;
+  currentRules.splice(insertAt, 0, ...copies);
+  // 复制出的新行不选中；保持原选中（位置不变，新行在它们之后）
+  renderRulesTable();
+  setStatus(`✅ 已复制 ${copies.length} 条规则（插入到第 ${insertAt + 1} 行之后）`);
+}
+
+// ====================== 增量暂存 + 合并导入 ======================
+let patchRules = [];            // 暂存的补丁规则（深拷贝，清除 is_default）
+let mergeTargets = [];          // [{id,name,org_id}] 多选目标站点
+let mergePreviews = {};         // {network_id: 预检返回} 每站点预检结果
+let mergeAnchors = {};          // {network_id: anchorIndex} 每站点锚点
+let mergeMissingMerged = [];    // 合并去重后的缺失对象（统一决策）
+
+// 把选中规则加入增量暂存
+function stageSelectedToPatch() {
+  const sel = getSelectedSorted();
+  if (!sel.length) return;
+  const staged = sel.map(i => {
+    const c = JSON.parse(JSON.stringify(currentRules[i]));
+    c.is_default = false;  // 补丁不带默认规则
+    return c;
+  });
+  patchRules = patchRules.concat(staged);
+  show(document.getElementById('patchCard'));
+  // 同时显示导入面板，让用户能选择目标组织（合并面板共用 importOrgSelect）
+  show(document.getElementById('importCard'));
+  const curOrg = document.getElementById('orgSelect').value;
+  if (curOrg && !document.getElementById('importOrgSelect').value) {
+    document.getElementById('importOrgSelect').value = curOrg;
+    onImportOrgChange();
+  }
+  renderPatchPreview();
+  renderMergeTargets();
+  setStatus(`✅ 已加入 ${staged.length} 条规则到增量暂存（当前共 ${patchRules.length} 条）`);
+}
+function clearPatch() {
+  if (!patchRules.length) return;
+  if (!confirm(`清空增量暂存的 ${patchRules.length} 条规则？`)) return;
+  patchRules = []; mergeTargets = []; mergePreviews = {}; mergeAnchors = {}; mergeMissingMerged = [];
+  renderPatchPreview(); renderMergeTargets();
+  document.getElementById('mergeResult').innerHTML = '';
+  hide(document.getElementById('mergeConfirmBar'));
+  setStatus('已清空增量暂存');
+}
+// 高亮 cidr 字段里的 OBJ/GRP/VLAN 引用段，方便用户看清补丁内容
+function highlightCidrRefs(val) {
+  const segs = String(val || '').split(',');
+  return segs.map(seg => {
+    const s = seg.trim();
+    if (/^(OBJ|GRP)\(\d+\)$/.test(s)) {
+      // 显示对象名（若索引已加载），否则显示原段
+      const name = refDisplayName(s);
+      const isObj = s.startsWith('OBJ');
+      return `<span style="background:var(--c-blue-soft);color:#3f5e7a;padding:1px 5px;border-radius:3px;" title="${esc(s)}">${esc(name)}</span>`;
+    }
+    if (/^VLAN\(\d+\)/.test(s)) {
+      return `<span style="background:var(--c-amber-soft);color:#7a5e1b;padding:1px 5px;border-radius:3px;" title="VLAN引用">${esc(s)}</span>`;
+    }
+    return esc(s);
+  }).join('<span style="color:var(--c-mid);">,</span>');
+}
+function renderPatchPreview() {
+  const box = document.getElementById('patchPreview');
+  document.getElementById('patchCount').textContent = patchRules.length ? `（${patchRules.length} 条）` : '';
+  if (!patchRules.length) {
+    box.innerHTML = '<div style="color:var(--c-mid);font-size:12px;padding:10px;">暂存区为空。在规则表勾选规则后点「📑 加入增量暂存」</div>';
+    return;
+  }
+  // 统计补丁里的 VLAN/OBJ/GRP 引用，提示用户
+  let vlanCnt = 0, refCnt = 0;
+  patchRules.forEach(r => {
+    [r.srcCidr, r.destCidr].forEach(v => {
+      String(v||'').split(',').forEach(s => {
+        s = s.trim();
+        if (/^VLAN\(\d+\)/.test(s)) vlanCnt++;
+        if (/^(OBJ|GRP)\(\d+\)$/.test(s)) refCnt++;
+      });
+    });
+  });
+  let hint = '';
+  if (vlanCnt) hint = `<div style="font-size:11px;color:#7a5e1b;margin-bottom:6px;">⚠️ 补丁含 ${vlanCnt} 个 VLAN 引用（黄色）— 目标站点需有同号 VLAN，否则导入会失败；${refCnt} 个对象引用（蓝色）将按目标 org 自动重映射</div>`;
+  // 紧凑表格预览，CIDR 字段高亮引用
+  box.innerHTML = hint + `<table style="font-size:11px;"><thead><tr>
+    <th>#</th><th>备注</th><th>策略</th><th>源 CIDR</th><th>目的端口</th><th>目的 CIDR</th><th>日志</th>
+    </tr></thead><tbody>${patchRules.map((r, i) => `<tr>
+    <td>${i+1}</td>
+    <td>${esc(r.comment||'')}</td>
+    <td>${esc(r.policy||'')}</td>
+    <td>${highlightCidrRefs(r.srcCidr)}</td>
+    <td>${esc(r.destPort||'')}</td>
+    <td>${highlightCidrRefs(r.destCidr)}</td>
+    <td>${r.syslogEnabled?'✓':''}</td>
+    </tr>`).join('')}</tbody></table>`;
+}
+
+// ---- 合并目标多选（复用 importNetList 模糊搜索模式）----
+let mergeNetList = [];
+function onMergeOrgReady(orgId) {
+  // 与 onImportOrgChange 同款：拉取站点+模板列表供搜索
+  const searchInput = document.getElementById('mergeNetSearch');
+  if (!orgId) { searchInput.disabled = true; searchInput.placeholder = '-- 先选组织 --'; mergeNetList = []; return; }
+  searchInput.disabled = true; searchInput.value = ''; searchInput.placeholder = '加载中...';
+  Promise.all([
+    api(`/api/networks?org_id=${orgId}`),
+    api(`/api/templates?org_id=${orgId}`).catch(() => []),
+  ]).then(([nets, tmpls]) => {
+    mergeNetList = [
+      ...nets.map(n => ({...n, is_template:false})),
+      ...tmpls.map(t => ({...t, is_template:true, bound_to_template:false})),
+    ];
+    searchInput.disabled = false;
+    searchInput.placeholder = `输入站点名称搜索（${nets.length} 站点 + ${tmpls.length} 模板），选中后添加到目标列表`;
+  }).catch(e => { searchInput.placeholder = '加载失败'; setStatus('❌ ' + e.message); });
+}
+function renderMergeNetDropdown(query) {
+  const dd = document.getElementById('mergeNetDropdown');
+  const q = query.trim().toLowerCase();
+  const filtered = mergeNetList.filter(n => !q || n.name.toLowerCase().includes(q) || String(n.id).toLowerCase().includes(q)).slice(0, 100);
+  if (!filtered.length) { dd.innerHTML = '<div class="dd-empty">没有匹配的站点或模板</div>'; show(dd); return; }
+  dd.innerHTML = filtered.map(n => {
+    let tag = n.is_template ? '<span class="dd-tag dd-tag-tmpl">📋模板</span>'
+      : (n.bound_to_template ? '<span class="dd-tag dd-tag-bound">🔗绑模板</span>' : '');
+    return `<div class="dd-item" data-id="${esc(n.id)}" data-name="${esc(n.name)}">
+      <span class="dd-name">${highlight(n.name, query)}</span>${tag}</div>`;
+  }).join('');
+  show(dd);
+}
+function addMergeTarget(id, name) {
+  const orgId = document.getElementById('importOrgSelect').value;
+  if (!orgId) { alert('请先在「③ 导入到目标站点」选择组织'); return; }
+  if (mergeTargets.some(t => t.id === id)) { setStatus('该站点已在目标列表中'); return; }
+  mergeTargets.push({ id, name, org_id: orgId });
+  document.getElementById('mergeNetSearch').value = '';
+  renderMergeTargets();
+  document.getElementById('btnMergePreview').disabled = mergeTargets.length === 0;
+}
+function removeMergeTarget(id) {
+  mergeTargets = mergeTargets.filter(t => t.id !== id);
+  delete mergePreviews[id]; delete mergeAnchors[id];
+  renderMergeTargets();
+  document.getElementById('btnMergePreview').disabled = mergeTargets.length === 0;
+}
+function renderMergeTargets() {
+  const box = document.getElementById('mergeTargetsChips');
+  if (!mergeTargets.length) {
+    box.innerHTML = '<span style="font-size:11px;color:#6b6b66;">未选择目标站点</span>';
+    document.getElementById('btnMergePreview').disabled = true;
+    return;
+  }
+  box.innerHTML = mergeTargets.map(t =>
+    `<span class="chip">${esc(t.name)} <span class="chip-x" onclick="removeMergeTarget('${esc(t.id)}')">✕</span></span>`
+  ).join('');
+  document.getElementById('btnMergePreview').disabled = false;
+}
+
+// ---- 合并预检（逐站点调 /api/import/merge，合并 missing）----
+async function doMergePreview() {
+  if (!patchRules.length) { alert('增量暂存为空'); return; }
+  if (!mergeTargets.length) { alert('请选择至少一个目标站点'); return; }
+  setStatus(`正在对 ${mergeTargets.length} 个目标站点预检合并...`, true);
+  hide(document.getElementById('mergeConfirmBar'));
+  mergePreviews = {}; mergeAnchors = {}; mergeMissingMerged = []; activeMergeTab = null;
+  const sourceOrgId = document.getElementById('orgSelect').value;
+  let errors = [];
+  for (const t of mergeTargets) {
+    try {
+      const data = await api('/api/import/merge', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ org_id: t.org_id, network_id: t.id, rules: patchRules, source_org_id: sourceOrgId }),
+      });
+      mergePreviews[t.id] = data;
+      // 默认锚点设为 -1（未选）：强制用户显式选锚点，避免漏选时静默插到末尾
+      mergeAnchors[t.id] = -1;
+      // 合并 missing（按 value 去重）
+      const existingVals = new Set(mergeMissingMerged.map(m => m.value));
+      (data.missing || []).forEach(m => { if (!existingVals.has(m.value)) { mergeMissingMerged.push(m); existingVals.add(m.value); } });
+    } catch (e) {
+      errors.push(`${t.name}: ${e.message}`);
+    }
+  }
+  setStatus(errors.length ? `❌ ${errors.length} 个站点预检失败` : '✅ 预检完成');
+  renderMergeResult(errors);
+  // 有缺失对象 → 决策面板（复用现有）；否则直接显示确认按钮
+  if (mergeMissingMerged.length) {
+    pendingMissing = mergeMissingMerged;
+    showDecisionModal();
+  } else {
+    show(document.getElementById('mergeConfirmBar'));
+  }
+}
+
+// 渲染合并预检结果 + 标签页锚点选择器
+let activeMergeTab = null;  // 当前激活的站点标签页 network_id
+function renderMergeResult(errors) {
+  const box = document.getElementById('mergeResult');
+  let html = '';
+  if (errors && errors.length) {
+    html += `<div class="alert alert-warn">❌ 部分站点预检失败:<br>${errors.map(e => '• ' + esc(e)).join('<br>')}</div>`;
+  }
+  const okTargets = mergeTargets.filter(t => mergePreviews[t.id]);
+  if (!okTargets.length) { box.innerHTML = html; return; }
+  html += `<div class="merge-summary">
+    <b>预检汇总</b>：${okTargets.length}/${mergeTargets.length} 站点可合并，
+    缺失对象 <span style="color:${mergeMissingMerged.length?'#c69a3f':'#788c5d'};font-weight:600;">${mergeMissingMerged.length}</span> 处
+    （${mergeMissingMerged.length ? '需决策后执行' : '可直接执行'}）</div>`;
+  html += `<div style="font-size:12px;color:#6b6b66;margin:8px 0 2px;">为每个站点选择插入位置（标签页绿点=已选，黄/红点=未选）：</div>`;
+  // 标签页栏
+  html += '<div class="merge-tabs">';
+  okTargets.forEach(t => {
+    const isActive = activeMergeTab === t.id;
+    const anchorSet = (mergeAnchors[t.id] ?? -1) >= 0;
+    const dotClass = isActive ? (anchorSet ? 'ready' : 'pending') : (anchorSet ? 'ready' : 'pending');
+    html += `<div class="merge-tab${isActive?' active':''}" onclick="switchMergeTab('${esc(t.id)}')">
+      <span class="mt-dot ${dotClass}"></span>
+      <span class="mt-name" title="${esc(t.name)}">${esc(t.name)}</span>
+    </div>`;
+  });
+  html += '</div>';
+  // 当前激活标签页的锚点选择器
+  const active = okTargets.find(t => t.id === activeMergeTab) || okTargets[0];
+  if (active) {
+    activeMergeTab = active.id;
+    const pv = mergePreviews[active.id];
+    const anchorSet = (mergeAnchors[active.id] ?? -1) >= 0;
+    html += `<div style="margin-top:8px;"><b style="font-family:var(--font-head);">📍 ${esc(active.name)}</b>
+      <span class="th-hint">补丁 ${pv.patch_preview.length} 条 → 目标现有 ${pv.target_rules_count} 条</span>
+      ${anchorSet ? '<span class="badge" style="background:var(--c-green-soft);color:#4d5d3a;">已选锚点</span>'
+                  : '<span class="badge" style="background:var(--c-amber-soft);color:#7a5e1b;">⚠️ 未选锚点</span>'}</div>`;
+    html += renderAnchorPicker(active.id, pv.target_grouped);
+  }
+  box.innerHTML = html;
+}
+function switchMergeTab(netId) {
+  activeMergeTab = netId;
+  renderMergeResult(null);
+}
+// 锚点选择器：按 source 分块展示目标规则。
+// 每块的插入点 = deny_index（插到 deny any any 之上）；无 deny 则用块末尾（最后一条 allow 之后）
+function anchorInsertPos(g) {
+  // deny_index 是 deny 规则的绝对索引，插入此位置 = 补丁出现在 deny 之前
+  if (g.deny_index !== null && g.deny_index !== undefined) return g.deny_index;
+  // 无 deny：插到块末尾（start+count，即本块最后一条之后）
+  return g.start + g.count;
+}
+function renderAnchorPicker(netId, grouped) {
+  if (!grouped || !grouped.length) return '<div class="th-hint">目标无规则</div>';
+  const anchor = mergeAnchors[netId] ?? -1;
+  return grouped.map((g, gi) => {
+    const insertPos = anchorInsertPos(g);
+    const isSel = anchor === insertPos;
+    const denyTag = g.has_deny ? ' <span class="badge" style="background:var(--c-red-soft);color:#8a3a35;">含deny</span>' : '';
+    const posDesc = g.has_deny
+      ? `deny 之上（位置 ${insertPos}）`
+      : `块末尾（位置 ${insertPos}）`;
+    // 规则预览：用后端返回的 srcCidr_resolved/destCidr_resolved（已用目标 org 索引解析名称）
+    const rulesPreview = g.rules.slice(0, 3).map(r => `<div>${esc(r.policy||'')} ${esc(r.protocol||'')} ${esc(r.srcPort||'')}→ ${esc(r.destPort||'')} ${highlightCidrRefs(r.destCidr_resolved || r.destCidr)}</div>`).join('') +
+      (g.rules.length > 3 ? `<div style="color:var(--c-mid);">…共 ${g.rules.length} 条</div>` : '');
+    // 块标签已是后端解析好的名称（OBJ/GRP→对象名）
+    return `<div class="anchor-group${isSel?' selected':''}" data-netid="${esc(netId)}" data-insertpos="${insertPos}">
+      <div class="anchor-group-head" onclick="pickAnchor('${esc(netId)}', ${insertPos})">
+        <span class="ag-label">${esc(g.label)}</span>
+        <span class="ag-meta">${g.count} 条（位置 ${g.start}–${g.start+g.count-1}）</span>${denyTag}
+        <button class="anchor-pick" onclick="event.stopPropagation();pickAnchor('${esc(netId)}', ${insertPos})">
+          ${isSel ? '✓ 已选锚点' : (g.has_deny ? '插到 deny 之上' : '插到本块末尾')}
+        </button>
+      </div>
+      <div class="anchor-group-body">${rulesPreview}<div style="color:var(--c-orange-dark);margin-top:2px;">插入点：${posDesc}</div></div>
+    </div>`;
+  }).join('');
+}
+function pickAnchor(netId, insertPos) {
+  mergeAnchors[netId] = insertPos;
+  renderMergeResult(null);
+  setStatus(`📍 ${netId.slice(-6)} 锚点设为位置 ${insertPos}（补丁插在该位置之前）`);
+}
+
+// ---- 合并确认（批量调 /api/import/merge/confirm）----
+async function doMergeConfirm() {
+  const targets = mergeTargets.filter(t => mergePreviews[t.id]);
+  if (!targets.length) { alert('无可合并的目标站点'); return; }
+  // 漏选保护：检查每个站点是否都选了锚点，未选的列出并阻止提交
+  const unselected = targets.filter(t => (mergeAnchors[t.id] ?? -1) < 0);
+  if (unselected.length) {
+    const names = unselected.map(t => t.name).join('、');
+    alert(`以下 ${unselected.length} 个站点尚未选择插入位置（锚点），请逐个切换标签页选定后再执行：\n${names}`);
+    // 切到第一个未选的标签页，引导用户
+    if (unselected.length) { activeMergeTab = unselected[0].id; renderMergeResult(null); }
+    return;
+  }
+  if (!confirm(`确认对 ${targets.length} 个站点执行增量合并？补丁 ${patchRules.length} 条将拼接进各站点现有规则（各自已备份）。`)) return;
+  setStatus(`正在执行增量合并（${targets.length} 站点）...`, true);
+  hide(document.getElementById('mergeConfirmBar'));
+  const sourceOrgId = document.getElementById('orgSelect').value;
+  const payloadTargets = targets.map(t => ({
+    network_id: t.id, org_id: t.org_id,
+    anchor: mergeAnchors[t.id] ?? 0,
+  }));
+  try {
+    const res = await api('/api/import/merge/confirm', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ rules: patchRules, decisions: pendingDecisions, source_org_id: sourceOrgId, targets: payloadTargets }),
+    });
+    let html = `<div class="alert alert-success">✅ 增量合并完成：${res.succeeded}/${res.total} 站点成功</div>`;
+    html += '<div style="margin-top:8px;">' + res.results.map(r => {
+      if (r.success) {
+        return `<div class="merge-res-item"><span>✅ ${esc(r.network_name||r.network_id)}</span>
+          <span class="th-hint">插入 ${r.rules_inserted} 条 → 合并后 ${r.rules_total??'?'} 条${r.objects_created?` · 新建 ${r.objects_created} 对象`:''}</span></div>`;
+      }
+      return `<div class="merge-res-item"><span>❌ ${esc(r.network_id)}</span><span style="color:#8a3a35;">${esc(r.error||'失败')}</span></div>`;
+    }).join('') + '</div>';
+    document.getElementById('mergeResult').innerHTML += html;
+    setStatus(`✅ 增量合并完成：${res.succeeded}/${res.total} 成功`);
+  } catch (e) {
+    document.getElementById('mergeResult').innerHTML += `<div class="alert alert-warn">❌ 合并失败: ${esc(e.message)}</div>`;
+    setStatus('❌ ' + e.message);
+  }
+}
+
+// ====================== 移动顺序（↑↓ / 拖拽） ======================
+// 单行上移/下移一位（批量选中时由 moveCellHTML 禁用按钮）
+function moveRow(i, dir) {
+  const j = i + dir;
+  if (j < 0 || j >= currentRules.length) return;
+  [currentRules[i], currentRules[j]] = [currentRules[j], currentRules[i]];
+  // 跟随移动选中态
+  if (selectedIdx.has(i) !== selectedIdx.has(j)) {
+    selectedIdx.delete(i); selectedIdx.delete(j);
+    selectedIdx.add(dir < 0 ? j : i);
+  }
+  renderRulesTable();
+}
+// 批量：把选中行作为整体（保持原相对顺序）移动到目标位置之后/之前
+// targetIdx 为放置目标行索引，placeAfter=true 表示插到该行之后
+function moveSelectedTo(targetIdx, placeAfter) {
+  const sel = getSelectedSorted();
+  if (!sel.length) return;
+  // 目标不能落在选中区间内部（无意义的原地放）
+  if (sel.includes(targetIdx)) return;
+  // 取出选中规则块
+  const moved = sel.map(i => currentRules[i]);
+  const rest = currentRules.filter((_, i) => !selectedIdx.has(i));
+  // 计算目标在 rest 中的锚点：原 targetIdx 减去它之前被移除的选中行数
+  let anchor = targetIdx - sel.filter(i => i < targetIdx).length;
+  if (placeAfter) anchor += 1;
+  anchor = Math.max(0, Math.min(anchor, rest.length));
+  rest.splice(anchor, 0, ...moved);
+  currentRules = rest;
+  // 重算选中索引 = 新插入位置起连续 moved.length 个
+  selectedIdx = new Set();
+  for (let k = 0; k < moved.length; k++) selectedIdx.add(anchor + k);
+  renderRulesTable();
+}
+
+// ====================== 拖拽排序（HTML5 Drag & Drop） ======================
+document.addEventListener('dragstart', (e) => {
+  const handle = e.target.closest('.drag-handle');
+  if (!handle) return;
+  const i = parseInt(handle.dataset.idx);
+  // 若拖拽的行未被选中，则把选中重置为仅该行（单行拖拽）
+  if (!selectedIdx.has(i)) {
+    selectedIdx = new Set([i]);
+    updateSelectionFromDOM();
+    updateBatchButtons();
+  }
+  dragSrcIdx = i;
+  const tr = handle.closest('tr');
+  if (tr) tr.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  // Firefox 需要 setData 才能触发拖拽
+  try { e.dataTransfer.setData('text/plain', String(i)); } catch (_) {}
+});
+document.addEventListener('dragover', (e) => {
+  if (dragSrcIdx === null) return;
+  const tr = e.target.closest('#rulesBody tr');
+  if (!tr) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  // 清除其它行的放置指示，仅高亮当前
+  document.querySelectorAll('#rulesBody tr.drag-over').forEach(t => t.classList.remove('drag-over'));
+  tr.classList.add('drag-over');
+});
+document.addEventListener('drop', (e) => {
+  if (dragSrcIdx === null) return;
+  const tr = e.target.closest('#rulesBody tr');
+  if (!tr) return;
+  e.preventDefault();
+  const targetIdx = parseInt(tr.dataset.idx);
+  // 放置位置：鼠标在行上半部→插到该行前；下半部→插到该行后
+  const rect = tr.getBoundingClientRect();
+  const placeAfter = (e.clientY - rect.top) > rect.height / 2;
+  moveSelectedTo(targetIdx, placeAfter);
+});
+document.addEventListener('dragend', () => {
+  dragSrcIdx = null;
+  document.querySelectorAll('#rulesBody tr.dragging').forEach(t => t.classList.remove('dragging'));
+  document.querySelectorAll('#rulesBody tr.drag-over').forEach(t => t.classList.remove('drag-over'));
+});
+function removeDefaultRows() {
+  currentRules = currentRules.filter(r => !r.is_default);
+  renderRulesTable();
+}
+
+// ====================== CSV 下载/上传 ======================
+const CSV_FIELDS = ['comment','policy','protocol','srcPort','srcCidr','destPort','destCidr','syslogEnabled'];
+function downloadCSV() {
+  const rows = [CSV_FIELDS];
+  currentRules.forEach(r => {
+    rows.push(CSV_FIELDS.map(f => r[f] !== undefined ? r[f] : ''));
+  });
+  const csv = rows.map(row => row.map(csvCell).join(',')).join('\r\n');
+  const blob = new Blob(['\ufeff' + csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `l3_firewall_rules_${Date.now()}.csv`;
+  a.click();
+}
+function csvCell(v) {
+  const s = String(v);
+  if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
+  return s;
+}
+function uploadCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const text = e.target.result.replace(/^\ufeff/, '');
+      const parsed = parseCSV(text);
+      if (parsed.length < 1) throw new Error('CSV 为空');
+      const headers = parsed[0];
+      currentRules = parsed.slice(1).filter(r => r.some(c => c.trim() !== '')).map(r => {
+        const obj = {};
+        headers.forEach((h, i) => obj[h.trim()] = r[i] !== undefined ? r[i] : '');
+        // 类型转换
+        obj.syslogEnabled = ['true','1','yes','True'].includes(obj.syslogEnabled);
+        obj.is_default = (obj.comment||'').trim().toLowerCase() === 'default rule';
+        return obj;
+      });
+      renderRulesTable();
+      setStatus(`✅ 已从 CSV 载入 ${currentRules.length} 条规则`);
+    } catch (err) {
+      setStatus('❌ CSV 解析失败: ' + err.message);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file, 'utf-8');
+}
+function parseCSV(text) {
+  // 简易 CSV parser（处理引号、逗号、换行）
+  const rows = []; let row = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) {
+      if (c === '"') {
+        if (text[i+1] === '"') { cur += '"'; i++; }
+        else inQ = false;
+      } else cur += c;
+    } else {
+      if (c === '"') inQ = true;
+      else if (c === ',') { row.push(cur); cur = ''; }
+      else if (c === '\r') { /* skip */ }
+      else if (c === '\n') { row.push(cur); rows.push(row); row=[]; cur=''; }
+      else cur += c;
+    }
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows;
+}
+
+// ====================== 导入面板 ======================
+function showImportPanel() {
+  if (!currentRules.length) { alert('请先导出或载入规则'); return; }
+  show(document.getElementById('importCard'));
+  // 默认目标 = 当前组织
+  const curOrg = document.getElementById('orgSelect').value;
+  if (curOrg) {
+    document.getElementById('importOrgSelect').value = curOrg;
+    onImportOrgChange();
+  }
+}
+let importNetList = [];
+let importNetActiveIdx = -1;
+
+async function onImportOrgChange() {
+  const orgId = document.getElementById('importOrgSelect').value;
+  const searchInput = document.getElementById('importNetSearch');
+  const hidden = document.getElementById('importNetSelect');
+  document.getElementById('targetIndexInfo').innerHTML = '';
+  document.getElementById('targetNetInfo').innerHTML = '';
+  document.getElementById('btnPreview').disabled = true;
+  hidden.value = '';
+  importNetList = [];
+  hide(document.getElementById('importNetDropdown'));
+  if (!orgId) {
+    searchInput.value = ''; searchInput.disabled = true;
+    searchInput.placeholder = '-- 先选组织 --';
+    return;
+  }
+  searchInput.disabled = true; searchInput.value = '';
+  searchInput.placeholder = '加载中...';
+  try {
+    const [nets, tmpls] = await Promise.all([
+      api(`/api/networks?org_id=${orgId}`),
+      api(`/api/templates?org_id=${orgId}`).catch(() => []),
+    ]);
+    importNetList = [
+      ...nets.map(n => ({...n, is_template: false})),
+      ...tmpls.map(t => ({...t, is_template: true, bound_to_template: false})),
+    ];
+    searchInput.disabled = false;
+    searchInput.placeholder = `输入站点/模板名称搜索（${nets.length} 站点 + ${tmpls.length} 模板）...`;
+  } catch (e) {
+    searchInput.placeholder = '加载失败';
+    setStatus('❌ ' + e.message);
+  }
+  // 同步为增量合并面板的目标站点搜索准备同一组织的站点列表
+  onMergeOrgReady(orgId);
+}
+function renderImportNetDropdown(query) {
+  const dd = document.getElementById('importNetDropdown');
+  const filtered = fuzzyFilter(importNetList, query).slice(0, 100);
+  importNetActiveIdx = filtered.length ? 0 : -1;
+  if (!filtered.length) {
+    dd.innerHTML = '<div class="dd-empty">没有匹配的站点或模板</div>';
+    show(dd); return;
+  }
+  dd.innerHTML = filtered.map((n, i) => {
+    let tag = '';
+    if (n.is_template) tag = '<span class="dd-tag dd-tag-tmpl">📋模板</span>';
+    else if (n.bound_to_template) tag = '<span class="dd-tag dd-tag-bound">🔗绑模板</span>';
+    return `<div class="dd-item${i===0?' active':''}" data-idx="${i}"
+        data-id="${esc(n.id)}" data-name="${esc(n.name)}">
+      <span class="dd-name">${highlight(n.name, query)}</span>${tag}
+    </div>`;
+  }).join('');
+  show(dd);
+}
+function selectImportNet(id) {
+  document.getElementById('importNetSelect').value = id;
+  hide(document.getElementById('importNetDropdown'));
+  onImportNetChange();
+}
+async function onImportNetChange() {
+  const netId = document.getElementById('importNetSelect').value;
+  const orgId = document.getElementById('importOrgSelect').value;
+  const info = document.getElementById('targetNetInfo');
+  document.getElementById('btnPreview').disabled = !netId;
+  if (!netId) { info.innerHTML = ''; return; }
+  try {
+    const data = await api(`/api/network-info?network_id=${netId}&org_id=${orgId}`);
+    if (data.is_template) {
+      info.innerHTML = `<div class="alert alert-warn">📋 目标是模板「${data.config_template_name||''}」，导入将影响 ${data.bound_network_count??'?'} 个绑定站点。</div>`;
+    } else if (data.bound_to_template) {
+      info.innerHTML = `<div class="alert alert-warn">⚠️ 目标绑定模板「${data.config_template_name||''}」，导入将影响 ${data.bound_network_count??'?'} 个绑定站点。</div>`;
+    } else {
+      info.innerHTML = `<div class="alert alert-info">目标为普通站点，直接写入。</div>`;
+    }
+  } catch(e) { info.innerHTML = ''; }
+}
+// 导入目标搜索框事件绑定
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('importNetSearch');
+  const dd = document.getElementById('importNetDropdown');
+  const field = document.getElementById('importNetField');
+  input.addEventListener('input', () => {
+    document.getElementById('importNetSelect').value = '';
+    document.getElementById('btnPreview').disabled = true;
+    renderImportNetDropdown(input.value);
+  });
+  input.addEventListener('focus', () => {
+    if (importNetList.length) renderImportNetDropdown(input.value);
+  });
+  input.addEventListener('keydown', (e) => {
+    const items = dd.querySelectorAll('.dd-item');
+    if (e.key === 'ArrowDown' && items.length) {
+      e.preventDefault();
+      importNetActiveIdx = Math.min(importNetActiveIdx + 1, items.length - 1);
+      updateImportActive(items);
+    } else if (e.key === 'ArrowUp' && items.length) {
+      e.preventDefault();
+      importNetActiveIdx = Math.max(importNetActiveIdx - 1, 0);
+      updateImportActive(items);
+    } else if (e.key === 'Enter' && importNetActiveIdx >= 0 && items[importNetActiveIdx]) {
+      e.preventDefault();
+      const it = items[importNetActiveIdx];
+      input.value = it.dataset.name;
+      selectImportNet(it.dataset.id);
+    } else if (e.key === 'Escape') {
+      hide(dd);
+    }
+  });
+  dd.addEventListener('click', (e) => {
+    const item = e.target.closest('.dd-item');
+    if (item) { input.value = item.dataset.name; selectImportNet(item.dataset.id); }
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#importNetField')) hide(dd);
+  });
+});
+// 增量合并目标搜索框事件绑定（点选→加入目标列表，可多选）
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('mergeNetSearch');
+  const dd = document.getElementById('mergeNetDropdown');
+  input.addEventListener('input', () => renderMergeNetDropdown(input.value));
+  input.addEventListener('focus', () => { if (mergeNetList.length) renderMergeNetDropdown(input.value); });
+  dd.addEventListener('click', (e) => {
+    const item = e.target.closest('.dd-item');
+    if (item) { addMergeTarget(item.dataset.id, item.dataset.name); hide(dd); }
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#mergeNetField')) hide(dd);
+  });
+});
+function updateImportActive(items) {
+  items.forEach((it, i) => it.classList.toggle('active', i === importNetActiveIdx));
+  const active = items[importNetActiveIdx];
+  if (active && active.scrollIntoView) active.scrollIntoView({block:'nearest'});
+}
+async function loadTargetIndex() {
+  const orgId = document.getElementById('importOrgSelect').value;
+  if (!orgId) { alert('请先选择目标组织'); return; }
+  setStatus('正在全量拉取目标组织对象并构建索引（首次较慢，后续走缓存）...', true);
+  document.getElementById('targetIndexInfo').innerHTML = '';
+  try {
+    const idx = await api(`/api/objects-index?org_id=${orgId}`);
+    document.getElementById('targetIndexInfo').innerHTML =
+      `✅ 目标对象索引已就绪：<span class="obj-count">${idx.object_count}</span> 个对象、` +
+      `<span class="obj-count">${idx.group_count}</span> 个组` +
+      `${idx.cached ? '（命中缓存）' : ''} · 构建于 ${idx.built_at||''}`;
+    setStatus('✅ 对象索引加载完成，可进行预检');
+  } catch(e) { setStatus('❌ ' + e.message); }
+}
+
+async function doImportPreview() {
+  const orgId = document.getElementById('importOrgSelect').value;
+  const netId = document.getElementById('importNetSelect').value;
+  if (!orgId || !netId) { alert('请选择目标组织和站点'); return; }
+  setStatus('正在预检（匹配对象 + 备份现有规则）...', true);
+  hide(document.getElementById('btnConfirm'));
+  pendingDecisions = {};
+  try {
+    const data = await api('/api/import', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        org_id: orgId, network_id: netId, rules: currentRules,
+        source_org_id: document.getElementById('orgSelect').value
+      })
+    });
+    lastPreviewData = data;
+    pendingMissing = data.missing || [];
+    // 备份下载链接
+    let backupHtml = '';
+    if (data.backup_data) {
+      const blob = new Blob([JSON.stringify(data.backup_data,null,2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      backupHtml = ` · <a href="${url}" download="${data.backup_file}">💾 下载目标现有规则备份</a>`;
+    }
+    let html = `<div class="result-box">
+      <b>预检结果</b><br>
+      待导入规则：${data.preview.length} 条<br>
+      目标对象索引：${data.object_count} 对象 / ${data.group_count} 组<br>
+      <span style="color:${pendingMissing.length?'#e67e22':'#27ae60'};font-weight:600;">
+        缺失对象引用：${pendingMissing.length} 处</span>${backupHtml}</div>`;
+    document.getElementById('importResult').innerHTML = html;
+    if (pendingMissing.length) {
+      showDecisionModal();
+    } else {
+      show(document.getElementById('btnConfirm'));
+      setStatus('✅ 预检通过，所有对象引用可自动匹配，可执行导入');
+    }
+  } catch(e) {
+    document.getElementById('importResult').innerHTML = `<div class="alert alert-warn">❌ 预检失败: ${esc(e.message)}</div>`;
+    setStatus('❌ ' + e.message);
+  }
+}
+
+// ====================== 决策模态框 ======================
+function showDecisionModal() {
+  const body = document.getElementById('decisionBody');
+  // 去重相同 value
+  const unique = {};
+  pendingMissing.forEach(m => { unique[m.value] = m; });
+  const uniqList = Object.values(unique);
+  body.innerHTML = uniqList.map((m, idx) => {
+    const isVlan = !!m.is_vlan;
+    // VLAN 引用：默认「跳过规则」，可选填目标子网后改「当字面值」
+    const opts = isVlan
+      ? `<option value="skip" selected>跳过规则</option>
+         <option value="literal">当字面值（填子网）</option>`
+      : `<option value="create">创建对象</option>
+         <option value="literal">当字面值</option>
+         <option value="skip">跳过规则</option>`;
+    const placeholder = isVlan
+      ? '(填目标子网CIDR，如 192.168.20.0/24)'
+      : '(可选)默认用对象值';
+    const tag = isVlan ? ' <span class="badge" style="background:#d1ecf1;color:#0c5460;">VLAN</span>' : '';
+    return `
+    <tr>
+      <td>${m.rule_index+1}</td>
+      <td>${m.field}</td>
+      <td><code>${esc(m.value)}</code>${tag}</td>
+      <td><select data-dkey="${esc(m.value)}" data-dtype="action">${opts}</select></td>
+      <td><input type="text" placeholder="${placeholder}" data-dkey="${esc(m.value)}" data-dtype="new_name"></td>
+    </tr>`;
+  }).join('');
+  show(document.getElementById('decisionModal'));
+}
+function setAllDecisions(action) {
+  document.querySelectorAll('#decisionBody select[data-dtype="action"]').forEach(s => s.value = action);
+}
+function confirmDecisions() {
+  pendingDecisions = {};
+  document.querySelectorAll('#decisionBody [data-dtype]').forEach(el => {
+    const key = el.dataset.dkey, type = el.dataset.dtype;
+    if (!pendingDecisions[key]) pendingDecisions[key] = {};
+    pendingDecisions[key][type] = el.value;
+  });
+  closeDecisionModal();
+  show(document.getElementById('btnConfirm'));
+  setStatus(`✅ 已设定 ${Object.keys(pendingDecisions).length} 项决策，可执行导入`);
+}
+function closeDecisionModal() { hide(document.getElementById('decisionModal')); }
+
+async function doImportConfirm() {
+  const orgId = document.getElementById('importOrgSelect').value;
+  const netId = document.getElementById('importNetSelect').value;
+  if (!orgId || !netId) return;
+  // 模板二次确认
+  if (lastPreviewData && lastPreviewData.context && lastPreviewData.context.bound_to_template) {
+    if (!confirm(`⚠️ 目标绑定模板，导入将影响 ${lastPreviewData.context.bound_network_count??'?'} 个绑定站点，确认继续？`)) return;
+  } else {
+    if (!confirm('确认执行导入？这会覆盖目标站点现有的 L3 防火墙规则。')) return;
+  }
+  setStatus('正在执行导入（创建对象 + 写入规则）...', true);
+  hide(document.getElementById('btnConfirm'));
+  try {
+    const res = await api('/api/import/confirm', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        org_id: orgId, network_id: netId,
+        rules: currentRules, decisions: pendingDecisions,
+        source_org_id: document.getElementById('orgSelect').value
+      })
+    });
+    let ctx = res.context || {};
+    document.getElementById('importResult').innerHTML += `<div class="alert alert-success">
+      ✅ 导入成功！<br>
+      写入规则：${res.rules_written} 条 · 跳过：${res.rules_skipped} 条 · 新建对象：${res.objects_created} 个<br>
+      目标：${ctx.bound_to_template ? '模板「'+(ctx.config_template_name||'')+'」' : '普通站点 '+ctx.network_name}
+      ${res.response_rules_count ? '（目标现有规则总数 '+res.response_rules_count+'）' : ''}
+    </div>`;
+    setStatus('✅ 导入完成');
+  } catch(e) {
+    document.getElementById('importResult').innerHTML += `<div class="alert alert-warn">❌ 导入失败: ${esc(e.message)}</div>`;
+    setStatus('❌ ' + e.message);
+  }
+}
+
+init();
+</script>
+</body>
+</html>

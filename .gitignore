@@ -1,0 +1,13 @@
+# 敏感配置（含 API key）
+.env
+
+# 运行时缓存
+cache/
+
+# Python
+__pycache__/
+*.pyc
+
+# 备份/导出文件
+*.bak
+backups/
