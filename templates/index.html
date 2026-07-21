@@ -377,7 +377,14 @@
       <label>&nbsp;</label>
       <button class="btn-warn" id="btnImport" onclick="showImportPanel()" disabled>📤 导入到新站点</button>
     </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <label class="btn-ghost" style="display:inline-block;cursor:pointer;" title="无需先导出站点，直接载入本地 CSV 后即可编辑并导入">📂 载入本地 CSV
+        <input type="file" accept=".csv" onchange="loadLocalCSV(event)" style="display:none;">
+      </label>
+    </div>
   </div>
+  <div style="font-size:11px;color:#6b6b66;margin-top:6px;">💡 已有本地 CSV 策略文件？点「📂 载入本地 CSV」即可直接编辑并全量/增量导入，无需先导出某个站点。</div>
   <div id="networkInfo"></div>
 </div>
 
@@ -1838,9 +1845,14 @@ function removeDefaultRows() {
 // ====================== CSV 下载/上传 ======================
 const CSV_FIELDS = ['comment','policy','protocol','srcPort','srcCidr','destPort','destCidr','syslogEnabled'];
 function downloadCSV() {
-  const rows = [CSV_FIELDS];
+  // 若任一规则带 *_resolved 解析列（导出/备份来源），一并写出，便于跨组织回导时保留对象解析
+  const hasResolved = currentRules.some(r => r.srcCidr_resolved != null || r.destCidr_resolved != null);
+  const fields = hasResolved
+    ? ['comment','policy','protocol','srcPort','srcCidr','srcCidr_resolved','destPort','destCidr','destCidr_resolved','syslogEnabled']
+    : CSV_FIELDS;
+  const rows = [fields];
   currentRules.forEach(r => {
-    rows.push(CSV_FIELDS.map(f => r[f] !== undefined ? r[f] : ''));
+    rows.push(fields.map(f => r[f] !== undefined ? r[f] : ''));
   });
   const csv = rows.map(row => row.map(csvCell).join(',')).join('\r\n');
   const blob = new Blob(['\ufeff' + csv], {type:'text/csv;charset=utf-8'});
@@ -1854,26 +1866,60 @@ function csvCell(v) {
   if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g,'""') + '"';
   return s;
 }
+// 解析 CSV 文本 → currentRules 并重渲染表格（供卡内上传 + 顶部“载入本地 CSV”共用）。
+// 泛化映射所有列，因此 srcCidr_resolved/destCidr_resolved 等额外列会被自动保留，供导入匹配使用。
+function applyCSVText(text) {
+  const clean = text.replace(/^\ufeff/, '');
+  const parsed = parseCSV(clean);
+  if (parsed.length < 1) throw new Error('CSV 为空');
+  const headers = parsed[0].map(h => h.trim());
+  if (!headers.includes('srcCidr') || !headers.includes('destCidr')) {
+    throw new Error('CSV 缺少必需列 srcCidr / destCidr');
+  }
+  currentRules = parsed.slice(1).filter(r => r.some(c => c.trim() !== '')).map(r => {
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = r[i] !== undefined ? r[i] : '');
+    // 类型转换
+    obj.syslogEnabled = ['true','1','yes','True'].includes(String(obj.syslogEnabled).trim());
+    obj.is_default = (obj.comment||'').trim().toLowerCase() === 'default rule';
+    return obj;
+  });
+  renderRulesTable();
+  return currentRules.length;
+}
 function uploadCSV(event) {
   const file = event.target.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = e => {
     try {
-      const text = e.target.result.replace(/^\ufeff/, '');
-      const parsed = parseCSV(text);
-      if (parsed.length < 1) throw new Error('CSV 为空');
-      const headers = parsed[0];
-      currentRules = parsed.slice(1).filter(r => r.some(c => c.trim() !== '')).map(r => {
-        const obj = {};
-        headers.forEach((h, i) => obj[h.trim()] = r[i] !== undefined ? r[i] : '');
-        // 类型转换
-        obj.syslogEnabled = ['true','1','yes','True'].includes(obj.syslogEnabled);
-        obj.is_default = (obj.comment||'').trim().toLowerCase() === 'default rule';
-        return obj;
-      });
-      renderRulesTable();
-      setStatus(`✅ 已从 CSV 载入 ${currentRules.length} 条规则`);
+      const n = applyCSVText(e.target.result);
+      setStatus(`✅ 已从 CSV 载入 ${n} 条规则`);
+    } catch (err) {
+      setStatus('❌ CSV 解析失败: ' + err.message);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file, 'utf-8');
+}
+// 顶部入口：无需先导出站点，直接载入本地 CSV → 展开规则编辑卡 + 开放导入
+function loadLocalCSV(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const n = applyCSVText(e.target.result);
+      // 本地 CSV 无源组织上下文：清空导出上下文与对象清单，导入时按目标组织匹配/决策
+      exportContext = null;
+      currentObjectsMap = [];
+      renderObjectsList();
+      show(document.getElementById('exportCard'));
+      document.getElementById('exportAlert').innerHTML =
+        '<div class="alert alert-warn">📂 规则来自本地 CSV（无源组织）。含 <code>OBJ(id)</code>/<code>GRP(id)</code> 引用的段将依赖 CSV 中的 <code>*_resolved</code> 列或在预检时按目标组织匹配/决策。</div>';
+      document.getElementById('btnImport').disabled = false;
+      setStatus(`✅ 已从本地 CSV 载入 ${n} 条规则，可编辑后全量/增量导入`);
+      document.getElementById('exportCard').scrollIntoView({behavior:'smooth', block:'start'});
     } catch (err) {
       setStatus('❌ CSV 解析失败: ' + err.message);
     }
