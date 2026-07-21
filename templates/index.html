@@ -381,6 +381,34 @@
   <div id="networkInfo"></div>
 </div>
 
+<!-- ====================== 批量备份区 ====================== -->
+<div class="card">
+  <h2>🗄️ 批量备份防火墙策略</h2>
+  <p style="font-size:12px;color:#6b6b66;margin-bottom:12px;">
+    一次选择多个站点/模板，服务端逐个导出 L3 防火墙规则为 CSV（含原始 <code>OBJ(id)</code> 与名称化双列），
+    打包成 ZIP 下载到本地。单站点失败不影响其他，错误记入 ZIP 内 <code>_errors.txt</code>。
+  </p>
+  <div class="row">
+    <div class="field">
+      <label>组织 Organization</label>
+      <select id="backupOrgSelect" onchange="onBackupOrgChange()">
+        <option value="">-- 选择 --</option>
+      </select>
+    </div>
+    <div class="field net-search-field" id="backupNetField" style="min-width:300px;">
+      <label>站点/模板（输入名称搜索，可添加多个）</label>
+      <input type="text" id="backupNetSearch" class="net-search-input"
+             placeholder="-- 先选组织 --" disabled autocomplete="off">
+      <div class="net-dropdown hidden" id="backupNetDropdown"></div>
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <button class="btn-primary" id="btnBackup" onclick="doBackupBatch()" disabled>💾 备份并下载 ZIP</button>
+    </div>
+  </div>
+  <div id="backupTargetsChips" style="margin-top:8px;"></div>
+</div>
+
 <!-- ====================== 导出/编辑区 ====================== -->
 <div class="card hidden" id="exportCard">
   <h2>
@@ -488,8 +516,8 @@
         <option value="">-- 选择 --</option>
       </select>
     </div>
-    <div class="field net-search-field" id="importNetField">
-      <label>目标站点/模板（输入名称搜索）</label>
+    <div class="field net-search-field" id="importNetField" style="min-width:300px;">
+      <label>目标站点/模板（输入名称搜索，可添加多个）</label>
       <input type="text" id="importNetSearch" class="net-search-input"
              placeholder="-- 先选组织 --" disabled autocomplete="off">
       <input type="hidden" id="importNetSelect">
@@ -500,6 +528,7 @@
       <button class="btn-ghost" onclick="loadTargetIndex()">🔄 加载目标对象索引</button>
     </div>
   </div>
+  <div id="importTargetsChips" style="margin-top:8px;"></div>
   <div id="targetIndexInfo" class="status"></div>
   <div id="targetNetInfo"></div>
   <div class="toolbar" style="margin-top:12px;">
@@ -624,6 +653,7 @@ async function init() {
     organizations = await api('/api/organizations');
     fillOrgSelect('orgSelect', organizations);
     fillOrgSelect('importOrgSelect', organizations);
+    fillOrgSelect('backupOrgSelect', organizations);
   } catch (e) {
     setStatus('❌ 加载组织失败: ' + e.message);
   }
@@ -1706,11 +1736,13 @@ async function doMergeConfirm() {
     let html = `<div class="alert alert-success">✅ 增量合并完成：${res.succeeded}/${res.total} 站点成功</div>`;
     html += '<div style="margin-top:8px;">' + res.results.map(r => {
       if (r.success) {
+        const rbBtn = res.batch_id ? ` <button class="btn-ghost btn-sm" onclick="doRollback('${esc(res.batch_id)}','${esc(r.network_id)}','mergeResult')">倒回此站点</button>` : '';
         return `<div class="merge-res-item"><span>✅ ${esc(r.network_name||r.network_id)}</span>
-          <span class="th-hint">插入 ${r.rules_inserted} 条 → 合并后 ${r.rules_total??'?'} 条${r.objects_created?` · 新建 ${r.objects_created} 对象`:''}</span></div>`;
+          <span class="th-hint">插入 ${r.rules_inserted} 条 → 合并后 ${r.rules_total??'?'} 条${r.objects_created?` · 新建 ${r.objects_created} 对象`:''}${rbBtn}</span></div>`;
       }
       return `<div class="merge-res-item"><span>❌ ${esc(r.network_id)}</span><span style="color:#8a3a35;">${esc(r.error||'失败')}</span></div>`;
     }).join('') + '</div>';
+    html += rollbackBarHtml(res.batch_id, 'mergeResult');
     document.getElementById('mergeResult').innerHTML += html;
     setStatus(`✅ 增量合并完成：${res.succeeded}/${res.total} 成功`);
   } catch (e) {
@@ -1884,6 +1916,8 @@ function showImportPanel() {
 }
 let importNetList = [];
 let importNetActiveIdx = -1;
+let importTargets = [];        // [{id,name,org_id,is_template,bound_to_template,...}] 多选导入目标
+let lastBatchPreview = null;   // 批量预检返回
 
 async function onImportOrgChange() {
   const orgId = document.getElementById('importOrgSelect').value;
@@ -1892,8 +1926,11 @@ async function onImportOrgChange() {
   document.getElementById('targetIndexInfo').innerHTML = '';
   document.getElementById('targetNetInfo').innerHTML = '';
   document.getElementById('btnPreview').disabled = true;
+  hide(document.getElementById('btnConfirm'));
   hidden.value = '';
   importNetList = [];
+  importTargets = [];
+  renderImportTargets();
   hide(document.getElementById('importNetDropdown'));
   if (!orgId) {
     searchInput.value = ''; searchInput.disabled = true;
@@ -1912,7 +1949,7 @@ async function onImportOrgChange() {
       ...tmpls.map(t => ({...t, is_template: true, bound_to_template: false})),
     ];
     searchInput.disabled = false;
-    searchInput.placeholder = `输入站点/模板名称搜索（${nets.length} 站点 + ${tmpls.length} 模板）...`;
+    searchInput.placeholder = `输入站点/模板名称搜索（${nets.length} 站点 + ${tmpls.length} 模板），可添加多个...`;
   } catch (e) {
     searchInput.placeholder = '加载失败';
     setStatus('❌ ' + e.message);
@@ -1939,27 +1976,51 @@ function renderImportNetDropdown(query) {
   }).join('');
   show(dd);
 }
-function selectImportNet(id) {
-  document.getElementById('importNetSelect').value = id;
-  hide(document.getElementById('importNetDropdown'));
-  onImportNetChange();
-}
-async function onImportNetChange() {
-  const netId = document.getElementById('importNetSelect').value;
+function addImportTarget(id, name) {
   const orgId = document.getElementById('importOrgSelect').value;
+  if (!orgId) { alert('请先选择目标组织'); return; }
+  if (importTargets.some(t => t.id === id)) { setStatus('该站点已在目标列表中'); return; }
+  const meta = importNetList.find(n => String(n.id) === String(id)) || {};
+  const t = { id, name, org_id: orgId, is_template: !!meta.is_template, bound_to_template: !!meta.bound_to_template };
+  importTargets.push(t);
+  document.getElementById('importNetSearch').value = '';
+  renderImportTargets();
+  hide(document.getElementById('btnConfirm'));
+  // 拉取模板绑定信息（异步），用于模板警告
+  api(`/api/network-info?network_id=${id}&org_id=${orgId}`).then(info => {
+    t.is_template = info.is_template; t.bound_to_template = info.bound_to_template;
+    t.config_template_name = info.config_template_name;
+    t.bound_network_count = info.bound_network_count;
+    renderImportTargets();
+  }).catch(() => {});
+}
+function removeImportTarget(id) {
+  importTargets = importTargets.filter(t => t.id !== id);
+  renderImportTargets();
+  hide(document.getElementById('btnConfirm'));
+}
+function renderImportTargets() {
+  const box = document.getElementById('importTargetsChips');
   const info = document.getElementById('targetNetInfo');
-  document.getElementById('btnPreview').disabled = !netId;
-  if (!netId) { info.innerHTML = ''; return; }
-  try {
-    const data = await api(`/api/network-info?network_id=${netId}&org_id=${orgId}`);
-    if (data.is_template) {
-      info.innerHTML = `<div class="alert alert-warn">📋 目标是模板「${data.config_template_name||''}」，导入将影响 ${data.bound_network_count??'?'} 个绑定站点。</div>`;
-    } else if (data.bound_to_template) {
-      info.innerHTML = `<div class="alert alert-warn">⚠️ 目标绑定模板「${data.config_template_name||''}」，导入将影响 ${data.bound_network_count??'?'} 个绑定站点。</div>`;
-    } else {
-      info.innerHTML = `<div class="alert alert-info">目标为普通站点，直接写入。</div>`;
-    }
-  } catch(e) { info.innerHTML = ''; }
+  if (!importTargets.length) {
+    box.innerHTML = '<span style="font-size:11px;color:#6b6b66;">未选择目标站点</span>';
+    document.getElementById('btnPreview').disabled = true;
+    if (info) info.innerHTML = '';
+    return;
+  }
+  box.innerHTML = importTargets.map(t => {
+    const badge = t.is_template ? ' <span class="badge badge-tmpl">📋模板</span>'
+      : (t.bound_to_template ? ' <span class="badge" style="background:var(--c-blue-soft);color:#3f5e7a;">🔗绑模板</span>' : '');
+    return `<span class="chip">${esc(t.name)}${badge} <span class="chip-x" onclick="removeImportTarget('${esc(t.id)}')">✕</span></span>`;
+  }).join('');
+  document.getElementById('btnPreview').disabled = false;
+  // 模板/绑定模板目标汇总警告
+  const tmplTargets = importTargets.filter(t => t.is_template || t.bound_to_template);
+  if (info) {
+    info.innerHTML = tmplTargets.length
+      ? `<div class="alert alert-warn">⚠️ ${tmplTargets.length} 个目标为模板或绑定模板，导入将影响其绑定的所有站点。</div>`
+      : '';
+  }
 }
 // 导入目标搜索框事件绑定
 document.addEventListener('DOMContentLoaded', () => {
@@ -1967,8 +2028,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const dd = document.getElementById('importNetDropdown');
   const field = document.getElementById('importNetField');
   input.addEventListener('input', () => {
-    document.getElementById('importNetSelect').value = '';
-    document.getElementById('btnPreview').disabled = true;
     renderImportNetDropdown(input.value);
   });
   input.addEventListener('focus', () => {
@@ -1987,15 +2046,15 @@ document.addEventListener('DOMContentLoaded', () => {
     } else if (e.key === 'Enter' && importNetActiveIdx >= 0 && items[importNetActiveIdx]) {
       e.preventDefault();
       const it = items[importNetActiveIdx];
-      input.value = it.dataset.name;
-      selectImportNet(it.dataset.id);
+      addImportTarget(it.dataset.id, it.dataset.name);
+      hide(dd);
     } else if (e.key === 'Escape') {
       hide(dd);
     }
   });
   dd.addEventListener('click', (e) => {
     const item = e.target.closest('.dd-item');
-    if (item) { input.value = item.dataset.name; selectImportNet(item.dataset.id); }
+    if (item) { addImportTarget(item.dataset.id, item.dataset.name); hide(dd); }
   });
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#importNetField')) hide(dd);
@@ -2037,35 +2096,38 @@ async function loadTargetIndex() {
 
 async function doImportPreview() {
   const orgId = document.getElementById('importOrgSelect').value;
-  const netId = document.getElementById('importNetSelect').value;
-  if (!orgId || !netId) { alert('请选择目标组织和站点'); return; }
-  setStatus('正在预检（匹配对象 + 备份现有规则）...', true);
+  if (!orgId) { alert('请选择目标组织'); return; }
+  if (!importTargets.length) { alert('请至少添加一个目标站点'); return; }
+  setStatus(`正在对 ${importTargets.length} 个目标站点预检（匹配对象 + 备份现有规则）...`, true);
   hide(document.getElementById('btnConfirm'));
   pendingDecisions = {};
   try {
-    const data = await api('/api/import', {
+    const data = await api('/api/import/batch', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        org_id: orgId, network_id: netId, rules: currentRules,
+        targets: importTargets.map(t => ({ network_id: t.id, org_id: t.org_id })),
+        rules: currentRules,
         source_org_id: document.getElementById('orgSelect').value
       })
     });
-    lastPreviewData = data;
+    lastBatchPreview = data;
     pendingMissing = data.missing || [];
-    // 备份下载链接
-    let backupHtml = '';
-    if (data.backup_data) {
-      const blob = new Blob([JSON.stringify(data.backup_data,null,2)], {type:'application/json'});
-      const url = URL.createObjectURL(blob);
-      backupHtml = ` · <a href="${url}" download="${data.backup_file}">💾 下载目标现有规则备份</a>`;
-    }
+    const perSite = data.per_site || [];
+    const okSites = perSite.filter(s => !s.error);
+    const errSites = perSite.filter(s => s.error);
     let html = `<div class="result-box">
-      <b>预检结果</b><br>
-      待导入规则：${data.preview.length} 条<br>
-      目标对象索引：${data.object_count} 对象 / ${data.group_count} 组<br>
-      <span style="color:${pendingMissing.length?'#e67e22':'#27ae60'};font-weight:600;">
-        缺失对象引用：${pendingMissing.length} 处</span>${backupHtml}</div>`;
+      <b>预检结果</b>：${okSites.length}/${perSite.length} 站点可导入，
+      <span style="color:${pendingMissing.length?'#e67e22':'#27ae60'};font-weight:600;">缺失对象引用 ${pendingMissing.length} 处</span>
+      （${pendingMissing.length ? '需决策后执行' : '可直接执行'}）</div>`;
+    html += '<div style="margin-top:8px;">' + perSite.map(s => s.error
+      ? `<div class="merge-res-item"><span>❌ ${esc(s.network_name||s.network_id)}</span><span style="color:#8a3a35;">${esc(s.error)}</span></div>`
+      : `<div class="merge-res-item"><span>📄 ${esc(s.network_name||s.network_id)}</span><span class="th-hint">待导入 ${s.preview_count} 条 · 缺失 ${s.missing_count} · 已备份 ${esc(s.backup_file||'')}</span></div>`
+    ).join('') + '</div>';
     document.getElementById('importResult').innerHTML = html;
+    if (!okSites.length) {
+      setStatus(`❌ 无可导入站点（${errSites.length} 个失败）`);
+      return;
+    }
     if (pendingMissing.length) {
       showDecisionModal();
     } else {
@@ -2098,10 +2160,12 @@ function showDecisionModal() {
       ? '(填目标子网CIDR，如 192.168.20.0/24)'
       : '(可选)默认用对象值';
     const tag = isVlan ? ' <span class="badge" style="background:#d1ecf1;color:#0c5460;">VLAN</span>' : '';
+    const ruleCol = (m.rule_index != null) ? (m.rule_index + 1) : '—';
+    const fieldCol = m.field || m.raw_seg || '—';
     return `
     <tr>
-      <td>${m.rule_index+1}</td>
-      <td>${m.field}</td>
+      <td>${ruleCol}</td>
+      <td>${esc(fieldCol)}</td>
       <td><code>${esc(m.value)}</code>${tag}</td>
       <td><select data-dkey="${esc(m.value)}" data-dtype="action">${opts}</select></td>
       <td><input type="text" placeholder="${placeholder}" data-dkey="${esc(m.value)}" data-dtype="new_name"></td>
@@ -2127,36 +2191,183 @@ function closeDecisionModal() { hide(document.getElementById('decisionModal')); 
 
 async function doImportConfirm() {
   const orgId = document.getElementById('importOrgSelect').value;
-  const netId = document.getElementById('importNetSelect').value;
-  if (!orgId || !netId) return;
-  // 模板二次确认
-  if (lastPreviewData && lastPreviewData.context && lastPreviewData.context.bound_to_template) {
-    if (!confirm(`⚠️ 目标绑定模板，导入将影响 ${lastPreviewData.context.bound_network_count??'?'} 个绑定站点，确认继续？`)) return;
+  if (!orgId) return;
+  const targets = importTargets.filter(t => {
+    const s = (lastBatchPreview && lastBatchPreview.per_site || []).find(p => String(p.network_id) === String(t.id));
+    return s && !s.error;
+  });
+  if (!targets.length) { alert('无可导入的目标站点'); return; }
+  // 模板/绑定模板目标二次确认
+  const tmplTargets = targets.filter(t => t.is_template || t.bound_to_template);
+  if (tmplTargets.length) {
+    if (!confirm(`⚠️ ${tmplTargets.length} 个目标为模板或绑定模板，导入将影响其绑定的所有站点，确认继续？`)) return;
   } else {
-    if (!confirm('确认执行导入？这会覆盖目标站点现有的 L3 防火墙规则。')) return;
+    if (!confirm(`确认对 ${targets.length} 个站点执行全量导入？这会覆盖各站点现有的 L3 防火墙规则（各自已备份）。`)) return;
   }
-  setStatus('正在执行导入（创建对象 + 写入规则）...', true);
+  setStatus(`正在执行全量导入（${targets.length} 站点）...`, true);
   hide(document.getElementById('btnConfirm'));
   try {
-    const res = await api('/api/import/confirm', {
+    const res = await api('/api/import/batch/confirm', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
-        org_id: orgId, network_id: netId,
+        targets: targets.map(t => ({ network_id: t.id, org_id: t.org_id })),
         rules: currentRules, decisions: pendingDecisions,
         source_org_id: document.getElementById('orgSelect').value
       })
     });
-    let ctx = res.context || {};
-    document.getElementById('importResult').innerHTML += `<div class="alert alert-success">
-      ✅ 导入成功！<br>
-      写入规则：${res.rules_written} 条 · 跳过：${res.rules_skipped} 条 · 新建对象：${res.objects_created} 个<br>
-      目标：${ctx.bound_to_template ? '模板「'+(ctx.config_template_name||'')+'」' : '普通站点 '+ctx.network_name}
-      ${res.response_rules_count ? '（目标现有规则总数 '+res.response_rules_count+'）' : ''}
-    </div>`;
-    setStatus('✅ 导入完成');
+    let html = `<div class="alert alert-success">✅ 全量导入完成：${res.succeeded}/${res.total} 站点成功</div>`;
+    html += '<div style="margin-top:8px;">' + res.results.map(r => {
+      if (r.success) {
+        const rbBtn = res.batch_id ? ` <button class="btn-ghost btn-sm" onclick="doRollback('${esc(res.batch_id)}','${esc(r.network_id)}','importResult')">倒回此站点</button>` : '';
+        return `<div class="merge-res-item"><span>✅ ${esc(r.network_name||r.network_id)}</span>
+          <span class="th-hint">写入 ${r.rules_written} 条 · 跳过 ${r.rules_skipped} 条${r.objects_created?` · 新建 ${r.objects_created} 对象`:''}${r.rules_total!=null?` · 目标现有 ${r.rules_total} 条`:''}${rbBtn}</span></div>`;
+      }
+      return `<div class="merge-res-item"><span>❌ ${esc(r.network_name||r.network_id)}</span><span style="color:#8a3a35;">${esc(r.error||'失败')}</span></div>`;
+    }).join('') + '</div>';
+    html += rollbackBarHtml(res.batch_id, 'importResult');
+    document.getElementById('importResult').innerHTML += html;
+    setStatus(`✅ 全量导入完成：${res.succeeded}/${res.total} 成功`);
   } catch(e) {
     document.getElementById('importResult').innerHTML += `<div class="alert alert-warn">❌ 导入失败: ${esc(e.message)}</div>`;
     setStatus('❌ ' + e.message);
+  }
+}
+
+// ====================== 批量备份 ======================
+let backupTargets = [];        // [{id,name,org_id}] 多选备份目标
+let backupNetList = [];
+function onBackupOrgChange() {
+  const orgId = document.getElementById('backupOrgSelect').value;
+  const searchInput = document.getElementById('backupNetSearch');
+  if (!orgId) {
+    searchInput.disabled = true; searchInput.value = '';
+    searchInput.placeholder = '-- 先选组织 --'; backupNetList = [];
+    return;
+  }
+  searchInput.disabled = true; searchInput.value = ''; searchInput.placeholder = '加载中...';
+  Promise.all([
+    api(`/api/networks?org_id=${orgId}`),
+    api(`/api/templates?org_id=${orgId}`).catch(() => []),
+  ]).then(([nets, tmpls]) => {
+    backupNetList = [
+      ...nets.map(n => ({...n, is_template:false})),
+      ...tmpls.map(t => ({...t, is_template:true, bound_to_template:false})),
+    ];
+    searchInput.disabled = false;
+    searchInput.placeholder = `输入名称搜索（${nets.length} 站点 + ${tmpls.length} 模板），选中后添加`;
+  }).catch(e => { searchInput.placeholder = '加载失败'; setStatus('❌ ' + e.message); });
+}
+function renderBackupNetDropdown(query) {
+  const dd = document.getElementById('backupNetDropdown');
+  const filtered = fuzzyFilter(backupNetList, query).slice(0, 100);
+  if (!filtered.length) { dd.innerHTML = '<div class="dd-empty">没有匹配的站点或模板</div>'; show(dd); return; }
+  dd.innerHTML = filtered.map(n => {
+    let tag = n.is_template ? '<span class="dd-tag dd-tag-tmpl">📋模板</span>'
+      : (n.bound_to_template ? '<span class="dd-tag dd-tag-bound">🔗绑模板</span>' : '');
+    return `<div class="dd-item" data-id="${esc(n.id)}" data-name="${esc(n.name)}">
+      <span class="dd-name">${highlight(n.name, query)}</span>${tag}</div>`;
+  }).join('');
+  show(dd);
+}
+function addBackupTarget(id, name) {
+  const orgId = document.getElementById('backupOrgSelect').value;
+  if (!orgId) { alert('请先选择组织'); return; }
+  if (backupTargets.some(t => t.id === id)) { setStatus('该站点已在备份列表中'); return; }
+  backupTargets.push({ id, name, org_id: orgId });
+  document.getElementById('backupNetSearch').value = '';
+  renderBackupTargets();
+}
+function removeBackupTarget(id) {
+  backupTargets = backupTargets.filter(t => t.id !== id);
+  renderBackupTargets();
+}
+function renderBackupTargets() {
+  const box = document.getElementById('backupTargetsChips');
+  if (!backupTargets.length) {
+    box.innerHTML = '<span style="font-size:11px;color:#6b6b66;">未选择备份站点</span>';
+    document.getElementById('btnBackup').disabled = true;
+    return;
+  }
+  box.innerHTML = backupTargets.map(t =>
+    `<span class="chip">${esc(t.name)} <span class="chip-x" onclick="removeBackupTarget('${esc(t.id)}')">✕</span></span>`
+  ).join('');
+  document.getElementById('btnBackup').disabled = false;
+}
+async function doBackupBatch() {
+  if (!backupTargets.length) { alert('请至少添加一个备份站点'); return; }
+  const btn = document.getElementById('btnBackup');
+  btn.disabled = true;
+  setStatus(`正在备份 ${backupTargets.length} 个站点并打包 ZIP...`, true);
+  try {
+    const resp = await fetch('/api/backup/batch', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ targets: backupTargets.map(t => ({ network_id: t.id, org_id: t.org_id })) }),
+    });
+    if (!resp.ok) {
+      let msg = `HTTP ${resp.status}`;
+      try { const j = await resp.json(); msg = j.error || msg; } catch (_) {}
+      throw new Error(msg);
+    }
+    const blob = await resp.blob();
+    // 从响应头取文件名，回退默认名
+    let fname = 'firewall_backup.zip';
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename=([^;]+)/);
+    if (m) fname = m[1].trim();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = fname;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    setStatus(`✅ 备份完成，已下载 ${fname}`);
+  } catch (e) {
+    setStatus('❌ 备份失败: ' + e.message);
+  } finally {
+    btn.disabled = false;
+  }
+}
+// 备份目标搜索框事件绑定（点选→加入备份列表，可多选）
+document.addEventListener('DOMContentLoaded', () => {
+  const input = document.getElementById('backupNetSearch');
+  const dd = document.getElementById('backupNetDropdown');
+  input.addEventListener('input', () => renderBackupNetDropdown(input.value));
+  input.addEventListener('focus', () => { if (backupNetList.length) renderBackupNetDropdown(input.value); });
+  dd.addEventListener('click', (e) => {
+    const item = e.target.closest('.dd-item');
+    if (item) { addBackupTarget(item.dataset.id, item.dataset.name); hide(dd); }
+  });
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('#backupNetField')) hide(dd);
+  });
+});
+
+// ====================== 一键倒回 ======================
+function rollbackBarHtml(batchId, resultElId) {
+  if (!batchId) return '';
+  return `<div class="toolbar" style="margin-top:8px;">
+    <button class="btn-warn btn-sm" onclick="doRollback('${esc(batchId)}', null, '${resultElId}')">↩️ 一键倒回本次操作</button>
+    <span class="th-hint">倒回会用操作前的备份覆盖目标站点当前规则</span></div>`;
+}
+async function doRollback(batchId, networkId, resultElId) {
+  if (!batchId) { alert('无可倒回批次'); return; }
+  const scope = networkId ? '该站点' : '本批次全部站点';
+  if (!confirm(`确认将${scope}的防火墙规则倒回到本次操作前的备份？这会覆盖当前规则。`)) return;
+  setStatus(`正在倒回${scope}...`, true);
+  try {
+    const res = await api('/api/rollback', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ batch_id: batchId, network_id: networkId || undefined }),
+    });
+    let html = `<div class="alert alert-success" style="margin-top:8px;">↩️ 倒回完成：${res.succeeded}/${res.total} 站点成功</div>`;
+    html += '<div>' + res.results.map(r => r.success
+      ? `<div class="merge-res-item"><span>✅ ${esc(r.network_name||r.network_id)}</span><span class="th-hint">恢复 ${r.rules_restored} 条</span></div>`
+      : `<div class="merge-res-item"><span>❌ ${esc(r.network_id)}</span><span style="color:#8a3a35;">${esc(r.error||'失败')}</span></div>`
+    ).join('') + '</div>';
+    const el = document.getElementById(resultElId);
+    if (el) el.innerHTML += html;
+    setStatus(`↩️ 倒回完成：${res.succeeded}/${res.total} 成功`);
+  } catch (e) {
+    setStatus('❌ 倒回失败: ' + e.message);
   }
 }
 

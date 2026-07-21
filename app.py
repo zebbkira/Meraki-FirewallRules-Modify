@@ -16,14 +16,18 @@ Meraki MX L3 防火墙规则导出/导入 Web 工具
 
 import os
 import re
+import io
+import csv
 import json
 import time
+import uuid
+import zipfile
 import threading
 from typing import List, Dict, Optional, Tuple, Set, Any
 from datetime import datetime
 
 import requests
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, Response
 from dotenv import load_dotenv
 
 # 加载 .env 配置
@@ -83,6 +87,59 @@ def classify_vlan_ref(seg: str) -> Optional[Tuple[str, str]]:
 # 缓存目录
 CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+# 回滚索引文件：记录每一批导入/合并操作的备份，供一键倒回使用
+ROLLBACK_INDEX = os.path.join(CACHE_DIR, "rollback_index.json")
+ROLLBACK_MAX_BATCHES = 50  # 索引最多保留的批次数，超出裁剪最旧
+_rollback_lock = threading.Lock()
+
+
+def _load_rollback_index() -> Dict:
+    """读取回滚索引（{"batches": [...]}），文件不存在/损坏时返回空结构。"""
+    if not os.path.exists(ROLLBACK_INDEX):
+        return {"batches": []}
+    try:
+        with open(ROLLBACK_INDEX, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        if not isinstance(data, dict) or not isinstance(data.get("batches"), list):
+            return {"batches": []}
+        return data
+    except Exception as e:
+        print(f"  [rollback] 索引读取失败，重置: {e}")
+        return {"batches": []}
+
+
+def _save_rollback_index(idx: Dict) -> None:
+    """写盘回滚索引，仅保留最近 ROLLBACK_MAX_BATCHES 个批次（裁剪最旧）。"""
+    batches = idx.get("batches", [])
+    if len(batches) > ROLLBACK_MAX_BATCHES:
+        idx["batches"] = batches[-ROLLBACK_MAX_BATCHES:]
+    try:
+        with open(ROLLBACK_INDEX, "w", encoding="utf-8") as f:
+            json.dump(idx, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        print(f"  [rollback] 索引写盘失败: {e}")
+
+
+def _record_rollback_batch(op_type: str, sites: List[Dict]) -> str:
+    """记录一批可倒回操作。
+    op_type: 'merge' | 'full_import'
+    sites: [{network_id, target_id, network_name, org_id, backup_file, syslog_default}]
+    返回 batch_id。无可倒回站点时不记录，返回空串。"""
+    if not sites:
+        return ""
+    batch_id = datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:4]
+    entry = {
+        "batch_id": batch_id,
+        "op_type": op_type,
+        "created_at": datetime.now().isoformat(),
+        "sites": sites,
+    }
+    with _rollback_lock:
+        idx = _load_rollback_index()
+        idx["batches"].append(entry)
+        _save_rollback_index(idx)
+    return batch_id
 
 
 # ===========================================================================
@@ -331,6 +388,19 @@ class MerakiL3FirewallApp:
             "GET", f"/networks/{target_id}/appliance/firewall/l3FirewallRules"
         )
         return data if isinstance(data, dict) else {"rules": data}
+
+    def write_backup(self, network_id: str, raw_rules: Dict) -> str:
+        """将目标站点当前规则（含 rules + syslogDefaultRule）写入备份文件，返回绝对路径。
+        文件名沿用 backup_<network_id>_<时间戳>.json，写盘失败不抛异常（返回空串）。"""
+        backup_ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+        backup_file = os.path.join(CACHE_DIR, f"backup_{network_id}_{backup_ts}.json")
+        try:
+            with open(backup_file, "w", encoding="utf-8") as f:
+                json.dump(raw_rules, f, ensure_ascii=False, indent=2)
+            return backup_file
+        except Exception as e:
+            print(f"  [warn] {network_id} 备份写入失败: {e}")
+            return ""
 
     def update_l3_rules(self, target_id: str, rules: List[Dict],
                         syslog_default_rule: bool,
@@ -1065,6 +1135,106 @@ def api_export():
     })
 
 
+# CSV 列（批量备份）：原始 OBJ(id)/GRP(id) 与名称化双列
+BACKUP_CSV_HEADER = [
+    "comment", "policy", "protocol",
+    "srcPort", "srcCidr", "srcCidr_resolved",
+    "destPort", "destCidr", "destCidr_resolved",
+    "syslogEnabled",
+]
+
+_ILLEGAL_FNAME = re.compile(r'[\\/:*?"<>|]+')
+
+
+def _safe_filename(name: str) -> str:
+    """去除文件名非法字符，用于 ZIP 内条目命名。"""
+    cleaned = _ILLEGAL_FNAME.sub("_", (name or "").strip())
+    return cleaned or "site"
+
+
+def _build_backup_csv(client: "MerakiL3FirewallApp", target: Dict,
+                      index: Dict) -> str:
+    """拉取单站点 L3 规则，生成含双列（原始 + 名称化）的 CSV 文本（含 UTF-8 BOM）。"""
+    raw = client.get_l3_rules(target["target_id"])
+    rules = raw.get("rules", []) if isinstance(raw, dict) else raw
+    obj_ids, group_ids = extract_obj_ids(rules)
+    obj_map, group_map = select_referenced_from_index(index, obj_ids, group_ids)
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(BACKUP_CSV_HEADER)
+    for r in rules:
+        src_raw = r.get("srcCidr", "Any")
+        dst_raw = r.get("destCidr", "Any")
+        writer.writerow([
+            r.get("comment", ""),
+            r.get("policy", "allow"),
+            r.get("protocol", "any"),
+            r.get("srcPort", "Any"),
+            src_raw,
+            resolve_cidr_for_export(src_raw, obj_map, group_map),
+            r.get("destPort", "Any"),
+            dst_raw,
+            resolve_cidr_for_export(dst_raw, obj_map, group_map),
+            bool(r.get("syslogEnabled", False)),
+        ])
+    return "\ufeff" + buf.getvalue()
+
+
+@flask_app.route("/api/backup/batch", methods=["POST"])
+def api_backup_batch():
+    """批量备份：对多个站点/模板逐个导出 L3 规则 CSV，打包为 ZIP 返回。
+    body: {targets: [{network_id, org_id}]}。单站点失败写入 _errors.txt，不中断其他。"""
+    data = request.get_json(force=True)
+    targets = data.get("targets", [])
+    if not targets:
+        return jsonify({"error": "缺少 targets"}), 400
+
+    client = get_client()
+    print(f"\n{'='*60}\n[批量备份] 站点 {len(targets)} 个")
+
+    buf = io.BytesIO()
+    errors: List[str] = []
+    ok_count = 0
+    used_names: Set[str] = set()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for t in targets:
+            net_id = t.get("network_id", "")
+            org_id = t.get("org_id", "")
+            try:
+                if not net_id or not org_id:
+                    raise ValueError("target 缺少 network_id 或 org_id")
+                target = client.resolve_target_id(net_id, org_id)
+                index = client.build_object_index(org_id)
+                csv_text = _build_backup_csv(client, target, index)
+                base = _safe_filename(target.get("network_name", "") or net_id)
+                fname = f"{base}_{net_id}.csv"
+                # 防重名
+                suffix = 1
+                while fname in used_names:
+                    fname = f"{base}_{net_id}_{suffix}.csv"
+                    suffix += 1
+                used_names.add(fname)
+                zf.writestr(fname, csv_text)
+                ok_count += 1
+                print(f"  [ok] {net_id} → {fname}")
+            except Exception as e:
+                print(f"  [error] {net_id}: {e}")
+                errors.append(f"{net_id} ({org_id}): {e}")
+        if errors:
+            zf.writestr("_errors.txt", "\n".join(errors))
+
+    if ok_count == 0:
+        return jsonify({"error": "所有站点备份失败", "details": errors}), 500
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    fname = f"firewall_backup_{ts}.zip"
+    return Response(
+        buf.getvalue(),
+        mimetype="application/zip",
+        headers={"Content-Disposition": f"attachment; filename={fname}"},
+    )
+
+
 @flask_app.route("/api/objects-index")
 def api_objects_index():
     """导入前：全量拉取目标 org 对象建索引（带缓存）"""
@@ -1119,44 +1289,38 @@ def api_objects_data():
     })
 
 
-@flask_app.route("/api/import", methods=["POST"])
-def api_import_preview():
-    """导入预检：匹配对象，返回缺失项 + 预览 + 备份，不写入"""
-    data = request.get_json(force=True)
-    org_id = data.get("org_id", "")
-    network_id = data.get("network_id", "")
-    source_org_id = data.get("source_org_id", "")
-    rules = data.get("rules", [])
-    if not org_id or not network_id:
-        return jsonify({"error": "缺少 org_id 或 network_id"}), 400
-
-    client = get_client()
-    print(f"\n{'='*60}\n[导入预检] org={org_id} network={network_id} 规则={len(rules)}")
-
-    # 1. 解析目标 id（org_id 即目标 org，也用于模板识别）
-    target = client.resolve_target_id(network_id, org_id)
-    print(f"  目标: {target['target_id']} (模板={target['bound_to_template']})")
-
-    # 2. 建目标索引 + VLAN 映射
-    index = client.build_object_index(org_id)
-    print(f"  目标索引: 对象={index['object_count']} 组={index['group_count']}")
-    vlan_map = client.build_vlan_map(target["target_id"])
-    print(f"  目标 VLAN: {len(vlan_map)} 个 {vlan_map if len(vlan_map) <= 10 else '...'}")
-
-    # 2.5 建源索引（用于 CSV/无 resolved 场景回查对象实际值）
-    source_index = None
-    if source_org_id and source_org_id != org_id:
+def _create_objects_from_decisions(client: "MerakiL3FirewallApp", org_id: str,
+                                  decisions: Dict) -> Tuple[Dict[str, str], int]:
+    """根据决策中 action=create 的条目在目标 org 创建 Policy Object。
+    返回 (value_to_new_objid, created_count)。创建失败的条目回退当字面值处理。"""
+    value_to_new_objid: Dict[str, str] = {}
+    created_count = 0
+    for value, dec in decisions.items():
+        if dec.get("action", "literal") != "create":
+            continue
+        new_name = dec.get("new_name") or value
+        payload = client._guess_object_payload(value, new_name)
         try:
-            source_index = client.build_object_index(source_org_id)
-            print(f"  源索引: 对象={source_index['object_count']} 组={source_index['group_count']}")
-        except Exception as e:
-            print(f"  [warn] 源索引构建失败: {e}")
-    elif source_org_id == org_id:
-        source_index = index  # 同 org 直接复用
+            created = client.create_policy_object(org_id, payload)
+            nid = str(created.get("id"))
+            value_to_new_objid[value] = nid
+            created_count += 1
+            print(f"  创建对象: {new_name}={value} → {nid}")
+        except RuntimeError as e:
+            print(f"  [warn] 创建对象失败 {new_name}: {e}")
+            # 失败则回退当字面值
+    return value_to_new_objid, created_count
 
-    # 3. 逐规则匹配，收集缺失
-    missing = []
-    preview = []
+
+def _preview_import_for_target(client: "MerakiL3FirewallApp", rules: List[Dict],
+                              target: Dict, index: Dict,
+                              source_index: Optional[Dict]
+                              ) -> Tuple[List[Dict], List[Dict], Dict, str]:
+    """针对单个目标站点做全量导入预检匹配，返回 (preview, missing, backup_data, backup_file)。
+    仅备份现有规则，不写入。missing 中 rule_index 指向 rules 列表中的原始下标。"""
+    vlan_map = client.build_vlan_map(target["target_id"])
+    missing: List[Dict] = []
+    preview: List[Dict] = []
     for i, r in enumerate(rules):
         if r.get("is_default"):
             continue
@@ -1176,13 +1340,11 @@ def api_import_preview():
         ):
             raw_segs = split_cidr_segments(r.get(raw_key, ""))
             res_segs = split_cidr_segments(r.get(res_key, ""))
-            # 若 resolved 段数与 raw 不一致，用 raw 填充
             while len(res_segs) < len(raw_segs):
                 res_segs.append("")
             final_segs = []
             for j, raw_seg in enumerate(raw_segs):
                 res_seg = res_segs[j] if j < len(res_segs) else ""
-                # 若 res_seg 为空（CSV 上传/新前端），用源索引回查
                 if not res_seg:
                     res_seg = resolve_seg_from_source(raw_seg, source_index or {})
                 final, note = match_segment_for_import(
@@ -1190,13 +1352,8 @@ def api_import_preview():
                 )
                 if final is None:
                     _, val = parse_resolved_segment(res_seg)
-                    # VLAN 引用未映射时，missing 的 value 用原始段（VLAN(tag)），
-                    # 便于决策面板辨识并让用户手填目标子网
                     vlan_ref = classify_vlan_ref(raw_seg)
-                    if vlan_ref is not None:
-                        disp_value = raw_seg
-                    else:
-                        disp_value = val or raw_seg
+                    disp_value = raw_seg if vlan_ref is not None else (val or raw_seg)
                     missing.append({
                         "rule_index": i,
                         "field": field,
@@ -1210,83 +1367,22 @@ def api_import_preview():
                     final_segs.append(final)
             final_rule[field] = ",".join(final_segs)
         preview.append(final_rule)
-
-    # 4. 备份现有规则
+    # 备份现有规则
     backup = client.get_l3_rules(target["target_id"])
-    backup_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    backup_file = os.path.join(
-        CACHE_DIR, f"backup_{network_id}_{backup_ts}.json"
-    )
-    try:
-        with open(backup_file, "w", encoding="utf-8") as f:
-            json.dump(backup, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"  [warn] 备份写入失败: {e}")
-
-    print(f"  缺失对象: {len(missing)} 备份: {backup_file}")
-    return jsonify({
-        "missing": missing,
-        "preview": preview,
-        "context": target,
-        "object_count": index["object_count"],
-        "group_count": index["group_count"],
-        "backup_file": os.path.basename(backup_file),
-        "backup_data": backup,
-    })
+    backup_file = client.write_backup(target["network_id"], backup)
+    return preview, missing, backup, backup_file
 
 
-@flask_app.route("/api/import/confirm", methods=["POST"])
-def api_import_confirm():
-    """确认导入：应用决策（创建对象/当字面值/跳过），执行 PUT"""
-    data = request.get_json(force=True)
-    org_id = data.get("org_id", "")
-    network_id = data.get("network_id", "")
-    source_org_id = data.get("source_org_id", "")
-    rules = data.get("rules", [])
-    decisions = data.get("decisions", {})  # {value: {action, new_name}}
-    if not org_id or not network_id:
-        return jsonify({"error": "缺少 org_id 或 network_id"}), 400
-
-    client = get_client()
-    print(f"\n{'='*60}\n[导入确认] org={org_id} network={network_id}")
-
-    target = client.resolve_target_id(network_id, org_id)
-    index = client.build_object_index(org_id)
+def _confirm_import_for_target(client: "MerakiL3FirewallApp", rules: List[Dict],
+                               target: Dict, index: Dict,
+                               source_index: Optional[Dict],
+                               value_to_new_objid: Dict[str, str],
+                               decisions: Dict
+                               ) -> Tuple[List[Dict], int, bool]:
+    """针对单个目标应用决策构建最终规则，返回 (final_rules, skipped, syslog_default)。不执行 PUT。
+    对象创建（decisions 中 action=create）需由调用方预先完成并传入 value_to_new_objid。"""
     vlan_map = client.build_vlan_map(target["target_id"])
-    print(f"  目标 VLAN: {len(vlan_map)} 个")
-
-    # 源索引（用于 CSV/无 resolved 场景回查对象实际值）
-    source_index = None
-    if source_org_id and source_org_id != org_id:
-        try:
-            source_index = client.build_object_index(source_org_id)
-        except Exception as e:
-            print(f"  [warn] 源索引构建失败: {e}")
-    elif source_org_id == org_id:
-        source_index = index
-
-    # 处理决策：创建对象，建立 value -> OBJ_ID 映射
-    created_count = 0
-    value_to_new_objid: Dict[str, str] = {}
-
-    for value, dec in decisions.items():
-        action = dec.get("action", "literal")
-        if action == "create":
-            new_name = dec.get("new_name") or value
-            # 自动判断 category/type
-            payload = client._guess_object_payload(value, new_name)
-            try:
-                created = client.create_policy_object(org_id, payload)
-                nid = str(created.get("id"))
-                value_to_new_objid[value] = nid
-                created_count += 1
-                print(f"  创建对象: {new_name}={value} → {nid}")
-            except RuntimeError as e:
-                print(f"  [warn] 创建对象失败 {new_name}: {e}")
-                # 失败则回退当字面值
-
-    # 构建最终规则（应用决策 + 匹配）
-    final_rules = []
+    final_rules: List[Dict] = []
     skipped = 0
     for i, r in enumerate(rules):
         if r.get("is_default"):
@@ -1313,7 +1409,6 @@ def api_import_confirm():
             out_segs = []
             for j, raw_seg in enumerate(raw_segs):
                 res_seg = res_segs[j] if j < len(res_segs) else ""
-                # 若 res_seg 为空（CSV 上传/新前端），用源索引回查
                 if not res_seg:
                     res_seg = resolve_seg_from_source(raw_seg, source_index or {})
                 out = client._apply_import_segment(
@@ -1330,12 +1425,94 @@ def api_import_confirm():
             skipped += 1
             continue
         final_rules.append(final_rule)
-
     # 默认规则的 syslogEnabled → 顶层 syslogDefaultRule
     syslog_default = False
     for r in rules:
         if r.get("is_default"):
             syslog_default = bool(r.get("syslogEnabled", False))
+    return final_rules, skipped, syslog_default
+
+
+def _resolve_source_index(client: "MerakiL3FirewallApp", source_org_id: str,
+                          org_id: str, index: Dict) -> Optional[Dict]:
+    """构建源 org 对象索引（供 CSV/无 resolved 场景回查）；同 org 直接复用目标索引。"""
+    if source_org_id and source_org_id != org_id:
+        try:
+            return client.build_object_index(source_org_id)
+        except Exception as e:
+            print(f"  [warn] 源索引构建失败: {e}")
+            return None
+    if source_org_id == org_id:
+        return index
+    return None
+
+
+@flask_app.route("/api/import", methods=["POST"])
+def api_import_preview():
+    """导入预检（单站点）：匹配对象，返回缺失项 + 预览 + 备份，不写入"""
+    data = request.get_json(force=True)
+    org_id = data.get("org_id", "")
+    network_id = data.get("network_id", "")
+    source_org_id = data.get("source_org_id", "")
+    rules = data.get("rules", [])
+    if not org_id or not network_id:
+        return jsonify({"error": "缺少 org_id 或 network_id"}), 400
+
+    client = get_client()
+    print(f"\n{'='*60}\n[导入预检] org={org_id} network={network_id} 规则={len(rules)}")
+
+    target = client.resolve_target_id(network_id, org_id)
+    print(f"  目标: {target['target_id']} (模板={target['bound_to_template']})")
+    index = client.build_object_index(org_id)
+    print(f"  目标索引: 对象={index['object_count']} 组={index['group_count']}")
+    source_index = _resolve_source_index(client, source_org_id, org_id, index)
+
+    preview, missing, backup, backup_file = _preview_import_for_target(
+        client, rules, target, index, source_index
+    )
+    print(f"  缺失对象: {len(missing)} 备份: {backup_file}")
+    return jsonify({
+        "missing": missing,
+        "preview": preview,
+        "context": target,
+        "object_count": index["object_count"],
+        "group_count": index["group_count"],
+        "backup_file": os.path.basename(backup_file) if backup_file else "",
+        "backup_data": backup,
+    })
+
+
+@flask_app.route("/api/import/confirm", methods=["POST"])
+def api_import_confirm():
+    """确认导入：应用决策（创建对象/当字面值/跳过），执行 PUT"""
+    data = request.get_json(force=True)
+    org_id = data.get("org_id", "")
+    network_id = data.get("network_id", "")
+    source_org_id = data.get("source_org_id", "")
+    rules = data.get("rules", [])
+    decisions = data.get("decisions", {})  # {value: {action, new_name}}
+    if not org_id or not network_id:
+        return jsonify({"error": "缺少 org_id 或 network_id"}), 400
+
+    client = get_client()
+    print(f"\n{'='*60}\n[导入确认] org={org_id} network={network_id}")
+
+    target = client.resolve_target_id(network_id, org_id)
+    index = client.build_object_index(org_id)
+    print(f"  目标: {target['target_id']} (模板={target['bound_to_template']})")
+
+    # 源索引（用于 CSV/无 resolved 场景回查对象实际值）
+    source_index = _resolve_source_index(client, source_org_id, org_id, index)
+
+    # 处理决策：创建对象，建立 value -> OBJ_ID 映射
+    value_to_new_objid, created_count = _create_objects_from_decisions(
+        client, org_id, decisions
+    )
+
+    # 构建最终规则（应用决策 + 匹配）
+    final_rules, skipped, syslog_default = _confirm_import_for_target(
+        client, rules, target, index, source_index, value_to_new_objid, decisions
+    )
 
     print(f"  最终规则: {len(final_rules)} 跳过: {skipped} 新建对象: {created_count}")
 
@@ -1518,6 +1695,7 @@ def api_import_merge_confirm():
             print(f"  [warn] 源索引构建失败: {e}")
 
     results = []
+    rollback_sites: List[Dict] = []
     for t in targets:
         net_id = t.get("network_id", "")
         org_id = t.get("org_id", "")
@@ -1563,14 +1741,8 @@ def api_import_merge_confirm():
             raw_target = client.get_l3_rules(target["target_id"])
             target_rules = raw_target.get("rules", []) if isinstance(raw_target, dict) else raw_target
 
-            # 备份
-            backup_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            backup_file = os.path.join(CACHE_DIR, f"backup_{net_id}_{backup_ts}.json")
-            try:
-                with open(backup_file, "w", encoding="utf-8") as f:
-                    json.dump(raw_target, f, ensure_ascii=False, indent=2)
-            except Exception as e:
-                print(f"  [warn] {net_id} 备份写入失败: {e}")
+            # 备份（供一键倒回）
+            backup_file = client.write_backup(net_id, raw_target)
 
             # 拼接：anchor 为插入位置（目标规则索引），clamp 到有效范围
             anchor = max(0, min(int(anchor), len(target_rules)))
@@ -1598,6 +1770,15 @@ def api_import_merge_confirm():
                 patch_offset=anchor, patch_len=len(final_patch),
             )
             resp_rules = result.get("rules", result) if isinstance(result, dict) else result
+            if backup_file:
+                rollback_sites.append({
+                    "network_id": net_id,
+                    "target_id": target["target_id"],
+                    "network_name": target.get("network_name", ""),
+                    "org_id": org_id,
+                    "backup_file": os.path.basename(backup_file),
+                    "syslog_default": syslog_default,
+                })
             results.append({
                 "network_id": net_id,
                 "network_name": target.get("network_name", ""),
@@ -1616,8 +1797,271 @@ def api_import_merge_confirm():
             })
 
     succeeded = sum(1 for r in results if r["success"])
+    batch_id = _record_rollback_batch("merge", rollback_sites)
+    print(f"  汇总: {succeeded}/{len(results)} 成功  batch_id={batch_id}")
+    return jsonify({
+        "results": results,
+        "succeeded": succeeded,
+        "total": len(results),
+        "batch_id": batch_id,
+    })
+
+
+# ===========================================================================
+# 一键倒回：从 rollback_index 找到批次 → 读备份文件 → 还原目标站点规则
+# ===========================================================================
+@flask_app.route("/api/rollback/list", methods=["GET"])
+def api_rollback_list():
+    """返回最近的可倒回批次列表（最新在前）。"""
+    idx = _load_rollback_index()
+    batches = []
+    for b in reversed(idx.get("batches", [])):
+        sites = b.get("sites", [])
+        batches.append({
+            "batch_id": b.get("batch_id", ""),
+            "op_type": b.get("op_type", ""),
+            "created_at": b.get("created_at", ""),
+            "site_count": len(sites),
+            "sites": [
+                {"network_id": s.get("network_id", ""),
+                 "network_name": s.get("network_name", "")}
+                for s in sites
+            ],
+        })
+    return jsonify({"batches": batches})
+
+
+def _rollback_one_site(client: "MerakiL3FirewallApp", site: Dict) -> Dict:
+    """将单个站点还原到其备份文件记录的规则（含 syslogDefaultRule）。"""
+    net_id = site.get("network_id", "")
+    backup_file = site.get("backup_file", "")
+    try:
+        target_id = site.get("target_id", "") or net_id
+        path = os.path.join(CACHE_DIR, os.path.basename(backup_file))
+        if not backup_file or not os.path.exists(path):
+            raise ValueError(f"备份文件不存在: {backup_file}")
+        with open(path, "r", encoding="utf-8") as f:
+            raw = json.load(f)
+        rules = raw.get("rules", []) if isinstance(raw, dict) else raw
+        # 去除默认规则（API PUT 不接受显式默认规则），提取 syslogDefaultRule
+        syslog_default = bool(raw.get("syslogDefaultRule", False)) if isinstance(raw, dict) else False
+        restore_rules = []
+        for r in rules:
+            if is_default_rule(r):
+                syslog_default = bool(r.get("syslogEnabled", syslog_default))
+                continue
+            restore_rules.append(r)
+        # 含 VLAN 引用的站点还原时用已存在 tag 集合放行校验
+        allowed = client.get_appliance_vlan_tags(target_id)
+        client.update_l3_rules(target_id, restore_rules, syslog_default,
+                               allowed_vlans=allowed)
+        return {
+            "network_id": net_id,
+            "network_name": site.get("network_name", ""),
+            "success": True,
+            "rules_restored": len(restore_rules),
+        }
+    except Exception as e:
+        print(f"  [error] 倒回 {net_id}: {e}")
+        return {
+            "network_id": net_id,
+            "network_name": site.get("network_name", ""),
+            "success": False,
+            "error": str(e),
+        }
+
+
+@flask_app.route("/api/rollback", methods=["POST"])
+def api_rollback():
+    """一键倒回：body {batch_id, network_id?(可选，仅倒回单站点)}。
+    逐站点独立错误处理，返回 {results, succeeded, total}。"""
+    data = request.get_json(force=True)
+    batch_id = data.get("batch_id", "")
+    only_net = data.get("network_id", "")
+    if not batch_id:
+        return jsonify({"error": "缺少 batch_id"}), 400
+
+    idx = _load_rollback_index()
+    batch = next((b for b in idx.get("batches", []) if b.get("batch_id") == batch_id), None)
+    if not batch:
+        return jsonify({"error": f"未找到批次 {batch_id}"}), 404
+
+    sites = batch.get("sites", [])
+    if only_net:
+        sites = [s for s in sites if s.get("network_id") == only_net]
+        if not sites:
+            return jsonify({"error": f"批次中无站点 {only_net}"}), 404
+
+    client = get_client()
+    print(f"\n{'='*60}\n[一键倒回] batch={batch_id} 站点 {len(sites)} 个")
+    results = [_rollback_one_site(client, s) for s in sites]
+    succeeded = sum(1 for r in results if r["success"])
     print(f"  汇总: {succeeded}/{len(results)} 成功")
     return jsonify({"results": results, "succeeded": succeeded, "total": len(results)})
+
+
+# ===========================================================================
+# 批量全量导入：多目标站点统一预检（缺失对象去重合并）+ 统一决策写入
+# ===========================================================================
+@flask_app.route("/api/import/batch", methods=["POST"])
+def api_import_batch_preview():
+    """批量全量导入预检：body {targets:[{network_id,org_id}], rules, source_org_id}。
+    逐站点 preview，各站点 missing 按 value 去重合并为统一 missing。"""
+    data = request.get_json(force=True)
+    targets = data.get("targets", [])
+    rules = data.get("rules", [])
+    source_org_id = data.get("source_org_id", "")
+    if not targets:
+        return jsonify({"error": "缺少 targets"}), 400
+
+    client = get_client()
+    print(f"\n{'='*60}\n[批量导入预检] 目标 {len(targets)} 个, 规则 {len(rules)} 条")
+
+    per_site = []
+    merged_missing: Dict[str, Dict] = {}
+    for t in targets:
+        net_id = t.get("network_id", "")
+        org_id = t.get("org_id", "")
+        try:
+            if not net_id or not org_id:
+                raise ValueError("target 缺少 network_id 或 org_id")
+            target = client.resolve_target_id(net_id, org_id)
+            index = client.build_object_index(org_id)
+            source_index = _resolve_source_index(client, source_org_id, org_id, index)
+            preview, missing, _backup, backup_file = _preview_import_for_target(
+                client, rules, target, index, source_index
+            )
+            for m in missing:
+                key = m["value"]
+                if key not in merged_missing:
+                    merged_missing[key] = {
+                        "value": m["value"],
+                        "raw_seg": m["raw_seg"],
+                        "res_seg": m["res_seg"],
+                        "is_vlan": m["is_vlan"],
+                    }
+            per_site.append({
+                "network_id": net_id,
+                "network_name": target.get("network_name", ""),
+                "preview_count": len(preview),
+                "missing_count": len(missing),
+                "backup_file": os.path.basename(backup_file) if backup_file else "",
+            })
+            print(f"  [ok] {net_id}: 预览 {len(preview)} 缺失 {len(missing)}")
+        except Exception as e:
+            print(f"  [error] {net_id}: {e}")
+            per_site.append({
+                "network_id": net_id,
+                "network_name": t.get("network_name", ""),
+                "error": str(e),
+            })
+
+    return jsonify({
+        "per_site": per_site,
+        "missing": list(merged_missing.values()),
+    })
+
+
+@flask_app.route("/api/import/batch/confirm", methods=["POST"])
+def api_import_batch_confirm():
+    """批量全量导入写入：body {targets, rules, decisions, source_org_id}。
+    逐站点：创建对象（按值去重复用）→ 构建规则 → 备份 → 全量 PUT；
+    逐站点独立错误处理；循环后记录回滚批次。"""
+    data = request.get_json(force=True)
+    targets = data.get("targets", [])
+    rules = data.get("rules", [])
+    decisions = data.get("decisions", {})
+    source_org_id = data.get("source_org_id", "")
+    if not targets:
+        return jsonify({"error": "缺少 targets"}), 400
+
+    client = get_client()
+    print(f"\n{'='*60}\n[批量导入确认] 目标 {len(targets)} 个")
+
+    results = []
+    rollback_sites: List[Dict] = []
+    for t in targets:
+        net_id = t.get("network_id", "")
+        org_id = t.get("org_id", "")
+        try:
+            if not net_id or not org_id:
+                raise ValueError("target 缺少 network_id 或 org_id")
+            target = client.resolve_target_id(net_id, org_id)
+            index = client.build_object_index(org_id)
+            source_index = _resolve_source_index(client, source_org_id, org_id, index)
+
+            # 决策：创建对象（本 org 独立；已有同值对象则复用）
+            value_to_new_objid: Dict[str, str] = {}
+            created_in_this_target = 0
+            for value, dec in decisions.items():
+                if dec.get("action") != "create":
+                    continue
+                if value in index.get("value_to_id", {}):
+                    value_to_new_objid[value] = index["value_to_id"][value]
+                    continue
+                new_name = dec.get("new_name") or value
+                payload = client._guess_object_payload(value, new_name)
+                try:
+                    created = client.create_policy_object(org_id, payload)
+                    value_to_new_objid[value] = str(created.get("id"))
+                    created_in_this_target += 1
+                except RuntimeError as e:
+                    print(f"  [warn] {net_id} 创建对象失败 {new_name}: {e}")
+
+            # 备份现有规则（供一键倒回）
+            raw_target = client.get_l3_rules(target["target_id"])
+            backup_file = client.write_backup(net_id, raw_target)
+
+            # 构建最终规则（应用决策）
+            final_rules, skipped, syslog_default = _confirm_import_for_target(
+                client, rules, target, index, source_index,
+                value_to_new_objid, decisions
+            )
+
+            # 含 VLAN 引用的站点全量导入时用已存在 tag 集合放行校验
+            allowed = client.get_appliance_vlan_tags(target["target_id"])
+            result = client.update_l3_rules(
+                target["target_id"], final_rules, syslog_default,
+                allowed_vlans=allowed,
+            )
+            resp_rules = result.get("rules", result) if isinstance(result, dict) else result
+            if backup_file:
+                rollback_sites.append({
+                    "network_id": net_id,
+                    "target_id": target["target_id"],
+                    "network_name": target.get("network_name", ""),
+                    "org_id": org_id,
+                    "backup_file": os.path.basename(backup_file),
+                    "syslog_default": syslog_default,
+                })
+            results.append({
+                "network_id": net_id,
+                "network_name": target.get("network_name", ""),
+                "success": True,
+                "rules_written": len(final_rules),
+                "rules_skipped": skipped,
+                "objects_created": created_in_this_target,
+                "rules_total": len(resp_rules) if isinstance(resp_rules, list) else None,
+            })
+            print(f"  [ok] {net_id}: 写入 {len(final_rules)} 跳过 {skipped} 新建 {created_in_this_target}")
+        except Exception as e:
+            print(f"  [error] {net_id}: {e}")
+            results.append({
+                "network_id": net_id,
+                "network_name": t.get("network_name", ""),
+                "success": False,
+                "error": str(e),
+            })
+
+    succeeded = sum(1 for r in results if r["success"])
+    batch_id = _record_rollback_batch("full_import", rollback_sites)
+    print(f"  汇总: {succeeded}/{len(results)} 成功  batch_id={batch_id}")
+    return jsonify({
+        "results": results,
+        "succeeded": succeeded,
+        "total": len(results),
+        "batch_id": batch_id,
+    })
 
 
 # ---------------------------------------------------------------------------
